@@ -620,6 +620,8 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self.fftWidget.setYRange(0, r)
 
+        self.signalComm.request_graph_update.emit()
+
     def daq_callback(self, task_handle, every_n_samples_event_type,
                      number_of_samples, callback_data):
         # print('Thread = {}          Function = daq_callback()'.format(threading.currentThread().getName()))
@@ -628,12 +630,15 @@ class MainWindow(QtWidgets.QMainWindow):
             sample = self.task.read(number_of_samples_per_channel=10)
             flow_voltage = 1000 * sum(sample[0]) / len(sample[0])
             temp_voltage = sum(sample[1]) / len(sample[1])
+            self.add_data_point(flow_voltage, temp_voltage)
         except Exception as err:
             print("Error" + err)
             # self.task = None
             return 0
 
+
         # datapoint = {'timestamp':, 'time', 'voltage'}
+
 
         # self.x = self.x[1:]  # Remove the first y element.
 
@@ -655,7 +660,7 @@ class MainWindow(QtWidgets.QMainWindow):
         #         value = int(value)
         #         self.mainLabel.display(value)
 
-        self.signalComm.request_graph_update.emit()
+
 
         # calibration on voltage delta
         # if self.calibrated:
@@ -786,8 +791,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass
 
         if not self.scanning and self.BLE_device is None:
-            print("combo, launch device_scan")
-            self.scan_for_devices()
+            pass
+            # print("combo, launch device_scan")
+            # self.scan_for_devices()
 
         if self.BLE_scan_complete and not combo_ble:
             self.combo.addItem('BLE: {0}'.format(self.controller.remoteName()), "BLE")
