@@ -686,7 +686,7 @@ class MainWindow(QMainWindow):
                          'flow_voltage': flow_voltage_one,
                          'temp_voltage': temp_voltage_one,
                          'temperature': temperature}
-            self.data_channel_one.append(datapoint, ignore_index=True)
+            self.data_channel_one = self.data_channel_one.append(datapoint, ignore_index=True)
             ''' FFT'''
             if len(self.x_channel_one) > self.N:
                 y = self.y_channel_one[-self.N:]
@@ -714,7 +714,7 @@ class MainWindow(QMainWindow):
                          'flow_voltage': flow_voltage_two,
                          'temp_voltage': temp_voltage_two,
                          'temperature': temperature}
-            self.data_channel_two.append(datapoint, ignore_index=True)
+            self.data_channel_two = self.data_channel_two.append(datapoint, ignore_index=True)
             ''' FFT'''
             if len(self.x_channel_two) > self.N:
                 y = self.y_channel_two[-self.N:]
