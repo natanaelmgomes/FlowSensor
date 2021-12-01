@@ -706,9 +706,9 @@ class MainWindow(QMainWindow):
                 while len(self.x_channel_two) > self.maxX:
                     self.x_channel_two = self.x_channel_two[1:]
                     self.y_channel_two = self.y_channel_two[1:]
-            beta = 3760
+            beta = 3950
             resistance = 9980 / ((5 / temp_voltage_two) - 1)
-            temperature = beta / log(resistance / (12000 * exp(- beta / 298.15))) - 273.15
+            temperature = beta / log(resistance / (10000 * exp(- beta / 298.15))) - 273.15
             datapoint = {'timestamp': timestamp,
                          'time': self.timeCounter,
                          'flow_voltage': flow_voltage_two,
