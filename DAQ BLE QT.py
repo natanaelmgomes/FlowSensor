@@ -796,6 +796,7 @@ class MainWindow(QMainWindow):
                 if self.discard_counter < 1:
                     self.discard = False
                 return 0
+
             i = 0
             data_one = None
             data_two = None
