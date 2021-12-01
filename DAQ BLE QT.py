@@ -387,7 +387,7 @@ class MainWindow(QMainWindow):
         self.channel_one_box = QCheckBox("Channel 1")
         self.channel_one_box.setChecked(True)
         self.channel_two_box = QCheckBox("Channel 2")
-        self.channel_two_box.setChecked(False)
+        self.channel_two_box.setChecked(True)
         channel_layout.addWidget(self.channel_one_box)
         channel_layout.addWidget(self.channel_two_box)
         self.channel_one_box.setFixedWidth(100)
