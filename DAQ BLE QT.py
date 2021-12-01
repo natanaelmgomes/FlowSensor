@@ -206,6 +206,8 @@ class MainWindow(QMainWindow):
     activeDAQ = False
     daq_device = None
     task = None
+    discard = True
+    discard_counter = 9
     ''' BLE '''
     useBLE = False
     activeBLE = False
@@ -789,6 +791,11 @@ class MainWindow(QMainWindow):
         # print('Thread = {}          Function = daq_callback()'.format(threading.currentThread().getName()))
         try:
             sample = self.task.read(number_of_samples_per_channel=10)
+            if self.discard:
+                self.discard_counter -= 1
+                if self.discard_counter < 1:
+                    self.discard = False
+                return 0
             i = 0
             data_one = None
             data_two = None
@@ -810,7 +817,6 @@ class MainWindow(QMainWindow):
             print("daq_callback error: ", err)
             self.text_box.append(" > > >  Error: {0}".format(str(err)))
             return 0
-
 
         return 0
 
@@ -925,6 +931,9 @@ class MainWindow(QMainWindow):
             # self.y = []
             # self.data = pd.DataFrame(columns=['timestamp', 'time', 'flow_voltage', 'temp_voltage', 'temperature'])
             # self.timeCounter = Decimal('0.0')
+
+            self.discard = True
+            self.discard_counter = 9
 
             self.task = nidaqmx.Task()
             self.activeDAQ = True
