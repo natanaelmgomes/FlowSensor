@@ -1,3 +1,5 @@
+import constants
+
 from PyQt5.QtCore import pyqtSlot, QByteArray, QObject, pyqtSignal, QRunnable, Qt, QTimer, QDir
 from PyQt5.QtGui import QPalette, QColor, QFont, QIcon, QPixmap
 from PyQt5 import QtBluetooth as QtBt
@@ -263,13 +265,11 @@ class MainWindow(QMainWindow):
         self.p2.addItem(self.data_line_channel_two)
 
         ''' FFT '''
-        self.N = 1024
-        self.T = 1.0 / 10.0
         self.yf_channel_one = fft(self.y_channel_one)
-        self.xf_channel_one = fftfreq(self.N, self.T)[:self.N // 2]
+        self.xf_channel_one = fftfreq(constants.FFT_N1, constants.SAMPLING_RATE)[:constants.FFT_N1 // 2]
         self.fft_line_channel_one = self.fftWidget.plot(
-            self.xf_channel_one[0:self.N // 10 + 1],
-            1.0 / self.N * np.abs(self.yf_channel_one[0:self.N // 2])[0:self.N // 10 + 1],
+            self.xf_channel_one[0:constants.FFT_N1 // 10 + 1],
+            1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[0:constants.FFT_N1 // 10 + 1],
             pen=pg.mkPen(color=(255, 20, 20, 255))
         )
         self.fft_line_channel_two = self.fftWidget.plot(
@@ -641,17 +641,17 @@ class MainWindow(QMainWindow):
         # print('Thread = {}          Function = update_graph()'.format(threading.currentThread().getName()))
         # if self.channel_one_box.isChecked():
         self.data_line_channel_one.setData(self.x_channel_one, self.y_channel_one)  # Update the data.
-        # self.fft_line.setData(self.xf, 2.0 / self.N * np.abs(self.yf[0:self.N // 2]))
-        self.fft_line_channel_one.setData(self.xf_channel_one[0:self.N // 10 + 1],
-                                          1.0 / self.N * np.abs(self.yf_channel_one[0:self.N // 2])[
-                                                         0:self.N // 10 + 1])
+        # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
+        self.fft_line_channel_one.setData(self.xf_channel_one[0:constants.FFT_N1 // 10 + 1],
+                                          1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[
+                                                         0:constants.FFT_N1 // 10 + 1])
 
         # if self.channel_two_box.isChecked():
         self.data_line_channel_two.setData(self.x_channel_two, self.y_channel_two)  # Update the data.
-        # self.fft_line.setData(self.xf, 2.0 / self.N * np.abs(self.yf[0:self.N // 2]))
-        self.fft_line_channel_two.setData(self.xf_channel_two[0:self.N // 10 + 1],
-                                          1.0 / self.N * np.abs(self.yf_channel_two[0:self.N // 2])[
-                                                         0:self.N // 10 + 1])
+        # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
+        self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N1 // 10 + 1],
+                                          1.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N1 // 2])[
+                                                         0:constants.FFT_N1 // 10 + 1])
 
         # TODO: improve scale
         # if len(self.y_channel_one) > 2:
@@ -688,12 +688,12 @@ class MainWindow(QMainWindow):
                          'temperature': temperature}
             self.data_channel_one = self.data_channel_one.append(datapoint, ignore_index=True)
             ''' FFT'''
-            if len(self.x_channel_one) > self.N:
-                y = self.y_channel_one[-self.N:]
+            if len(self.x_channel_one) > constants.FFT_N1:
+                y = self.y_channel_one[-constants.FFT_N1:]
                 y = y - np.average(y)
                 self.yf_channel_one = fft(y)
-                self.xf_channel_one = fftfreq(self.N, self.T)[:self.N // 2]
-                r1 = max(1.0 / self.N * np.abs(self.yf_channel_one[0:self.N // 2])[0:self.N // 10 + 1])
+                self.xf_channel_one = fftfreq(constants.FFT_N1, constants.SAMPLING_RATE)[:constants.FFT_N1 // 2]
+                r1 = max(1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[0:constants.FFT_N1 // 10 + 1])
 
         if data_two is not None:
             flow_voltage_two, temp_voltage_two = data_two
@@ -716,12 +716,12 @@ class MainWindow(QMainWindow):
                          'temperature': temperature}
             self.data_channel_two = self.data_channel_two.append(datapoint, ignore_index=True)
             ''' FFT'''
-            if len(self.x_channel_two) > self.N:
-                y = self.y_channel_two[-self.N:]
+            if len(self.x_channel_two) > constants.FFT_N1:
+                y = self.y_channel_two[-constants.FFT_N1:]
                 y = y - np.average(y)
                 self.yf_channel_two = fft(y)
-                self.xf_channel_two = fftfreq(self.N, self.T)[:self.N // 2]
-                r2 = max(1.0 / self.N * np.abs(self.yf_channel_two[0:self.N // 2])[0:self.N // 10 + 1])
+                self.xf_channel_two = fftfreq(constants.FFT_N1, constants.SAMPLING_RATE)[:constants.FFT_N1 // 2]
+                r2 = max(1.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N1 // 2])[0:constants.FFT_N1 // 10 + 1])
 
         # TODO: improve scale
         # maxy = max(self.y)
@@ -1139,9 +1139,9 @@ class MainWindow(QMainWindow):
             print("Need more data.")
             return
 
-        self.calibrateData = self.y_channel_one[-200:]
-        self.calibration = np.average(self.calibrateData)
-        self.calibrated = True
+        # self.calibrateData = self.y_channel_one[-200:]
+        # self.calibration = np.average(self.calibrateData)
+        # self.calibrated = True
 
     def ScaleBoxChanged(self):
         # print(self.ScaleBox.isChecked())
