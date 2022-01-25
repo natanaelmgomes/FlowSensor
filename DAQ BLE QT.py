@@ -622,16 +622,16 @@ class MainWindow(QMainWindow):
         # if self.channel_one_box.isChecked():
         self.data_line_channel_one.setData(self.x_channel_one, self.y_channel_one)  # Update the data.
         # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
-        self.fft_line_channel_one.setData(self.xf_channel_one[0:constants.FFT_N1 // 10 + 1],
-                                          1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[
-                                                                   0:constants.FFT_N1 // 10 + 1])
+        self.fft_line_channel_one.setData(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1],
+                                          2.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N2 // 2])[
+                                                                   0:constants.FFT_N2 // 7 + 1])
 
         # if self.channel_two_box.isChecked():
         self.data_line_channel_two.setData(self.x_channel_two, self.y_channel_two)  # Update the data.
         # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
-        self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N1 // 10 + 1],
-                                          1.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N1 // 2])[
-                                                                   0:constants.FFT_N1 // 10 + 1])
+        self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N2 // 7 + 1],
+                                          2.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N2 // 2])[
+                                                                   0:constants.FFT_N2 // 7 + 1])
 
         # TODO: improve scale
         # if len(self.y_channel_one) > 2:
