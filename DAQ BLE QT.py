@@ -763,7 +763,7 @@ class MainWindow(QMainWindow):
     def daq_callback(self, task_handle, every_n_samples_event_type, number_of_samples, callback_data):
         # print('Thread = {}          Function = daq_callback()'.format(threading.currentThread().getName()))
         try:
-            sample = self.task.read(number_of_samples_per_channel=10)
+            sample = self.task.read(number_of_samples_per_channel=10000)
             if self.discard:
                 self.discard_counter -= 1
                 if self.discard_counter < 1:
@@ -939,8 +939,8 @@ class MainWindow(QMainWindow):
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.RSE)
 
-            self.task.timing.cfg_samp_clk_timing(100, sample_mode=AcquisitionType.CONTINUOUS)
-            self.task.register_every_n_samples_acquired_into_buffer_event(10, self.daq_callback)
+            self.task.timing.cfg_samp_clk_timing(100000, sample_mode=AcquisitionType.CONTINUOUS)
+            self.task.register_every_n_samples_acquired_into_buffer_event(10000, self.daq_callback)
             self.task.start()
             self.startButton.setText("Stop")
             self.startButton2.setText("Stop")
