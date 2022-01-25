@@ -48,32 +48,12 @@ from scipy.fft import fft, fftfreq
 
 # import threading
 # import statistics
-try:
-    # from tensorflow import config
-    # from tensorflow.keras import models
-    # tf = True
-    tf = False
-except Exception as e:
-    print(e)
-    tf = False
-    print("Tensorflow not loaded.")
+
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
+from scipy import signal
 import warnings
 import json
-
-if tf:
-    try:
-        gpus = config.list_physical_devices('GPU')
-        if gpus:
-            # Currently, memory growth needs to be the same across GPUs
-            for gpu in gpus:
-                config.experimental.set_memory_growth(gpu, True)
-            logical_gpus = config.list_logical_devices('GPU')
-            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
-    except Exception as e:
-        # Memory growth must be set before GPUs have been initialized
-        print(e, "- Tensorflow not loaded.")
 
 warnings.simplefilter("error", OptimizeWarning)
 
@@ -266,16 +246,21 @@ class MainWindow(QMainWindow):
         self.p2.addItem(self.data_line_channel_two)
 
         ''' FFT '''
-        self.yf_channel_one = fft(self.y_channel_one)
-        self.xf_channel_one = fftfreq(constants.FFT_N1, constants.SAMPLING_RATE)[:constants.FFT_N1 // 2]
+        self.yf_channel_one = fft(self.y_channel_one, constants.FFT_N2)
+        self.xf_channel_one = fftfreq(constants.FFT_N2, constants.SAMPLING_RATE)[:constants.FFT_N2 // 2]
         self.fft_line_channel_one = self.fftWidget.plot(
-            self.xf_channel_one[0:constants.FFT_N1 // 10 + 1],
-            1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[0:constants.FFT_N1 // 10 + 1],
+            self.xf_channel_one[0:constants.FFT_N2 // 7 + 1],
+            2.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N2 // 2])[0:constants.FFT_N2 // 7 + 1],
             pen=pg.mkPen(color=(255, 20, 20, 255))
         )
+        # print(len(2.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N2 // 2])[0:constants.FFT_N2 // 7 + 1]))
+        # print(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1])
         self.fft_line_channel_two = self.fftWidget.plot(
-            list(np.linspace(0, 1, 256)),
-            [random() * 128 for _ in range(256)],
+            list(np.linspace(
+                0,
+                self.xf_channel_one[0:constants.FFT_N2 // 7 + 1][-1],
+                len(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1]))),
+            [random() * 32 + 16 for _ in range(len(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1]))],
             pen=pg.mkPen(color=(20, 255, 20, 255))
         )
 
@@ -293,15 +278,6 @@ class MainWindow(QMainWindow):
 
         ''' Calibration '''
         self.calibrateData = 0
-
-        ''' Tensorflow '''
-        if tf:
-            self.model = models.load_model('D:/RUG/Dev/Notebooks/models/2021-10-19 first working model')
-            self.model.summary()
-            self.values_deque = deque()
-        # except Exception as e:
-        #     print(e, "- Tensorflow not loaded.")
-        # end Tensorflow
 
         ''' BLE '''
         # print('Thread = {}          Function = init()'.format(threading.currentThread().getName()))
@@ -695,10 +671,10 @@ class MainWindow(QMainWindow):
             if len(self.x_channel_one) > constants.FFT_N1:
                 y = self.y_channel_one[-constants.FFT_N1:]
                 y = y - np.average(y)
-                self.yf_channel_one = fft(y)
-                self.xf_channel_one = fftfreq(constants.FFT_N1, constants.SAMPLING_RATE)[:constants.FFT_N1 // 2]
-                r1 = max(1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[
-                                                  0:constants.FFT_N1 // 10 + 1])
+                self.yf_channel_one = fft(y * constants.KAISER_WINDOW, constants.FFT_N2)
+                self.xf_channel_one = fftfreq(constants.FFT_N2, constants.SAMPLING_RATE)[:constants.FFT_N2 // 2]
+                r1 = max(2.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N2 // 2])[
+                                                  0:constants.FFT_N2 // 7 + 1])
 
         if data_two is not None:
             flow_voltage_two, temp_voltage_two = data_two
@@ -724,10 +700,10 @@ class MainWindow(QMainWindow):
             if len(self.x_channel_two) > constants.FFT_N1:
                 y = self.y_channel_two[-constants.FFT_N1:]
                 y = y - np.average(y)
-                self.yf_channel_two = fft(y)
-                self.xf_channel_two = fftfreq(constants.FFT_N1, constants.SAMPLING_RATE)[:constants.FFT_N1 // 2]
-                r2 = max(1.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N1 // 2])[
-                                                  0:constants.FFT_N1 // 10 + 1])
+                self.yf_channel_two = fft(y * constants.KAISER_WINDOW, constants.FFT_N2)
+                self.xf_channel_two = fftfreq(constants.FFT_N2, constants.SAMPLING_RATE)[:constants.FFT_N2 // 2]
+                r2 = max(2.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N2 // 2])[
+                                                  0:constants.FFT_N2 // 7 + 1])
 
         # TODO: improve scale
         # maxy = max(self.y)
@@ -751,16 +727,6 @@ class MainWindow(QMainWindow):
             self.fftWidget.setYRange(0, 0.02)
         else:
             self.fftWidget.setYRange(0, r)
-
-        ''' Tensorflow '''
-        if len(self.x_channel_one) > 1024 and tf:
-            if len(self.x_channel_one) % 5 == 0:
-                chunk = np.array(self.y_channel_one[-1024:])
-                value = float(self.model.predict(chunk.reshape((1, 1024))))
-                self.values_deque.append(value)
-
-                if len(self.values_deque) > 120:
-                    self.values_deque.popleft()
 
         def func(fx, fa, fb):
             return fa + fb * fx
@@ -998,7 +964,7 @@ class MainWindow(QMainWindow):
             # start receiving data from BLE
             self.BLE_service = self.controller.createServiceObject(self.BLE_UUID_service)
             self.BLE_service.error.connect(self.handleServiceError)
-            if self.BLE_service is None:
+            if self.BLE_service == None:
                 print("ERR: Cannot open service\n")
             print('Service name: ', self.BLE_service.serviceName())
             print('Service state: ', self.BLE_service.state())
