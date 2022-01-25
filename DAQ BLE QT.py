@@ -77,6 +77,7 @@ if tf:
 
 warnings.simplefilter("error", OptimizeWarning)
 
+
 class WorkerSignals(QObject):
     """
     Defines the signals available from a running worker thread.
@@ -281,7 +282,7 @@ class MainWindow(QMainWindow):
         ''' Timer '''
         self.timerCombo = QTimer(self)
         self.timerCombo.setInterval(500)
-        self.timerCombo.timeout.connect(self.updateCombo)
+        self.timerCombo.timeout.connect(self.update_combo)
         self.timerCombo.start()
 
         self.timeCounter = Decimal('0.0')
@@ -315,7 +316,7 @@ class MainWindow(QMainWindow):
         ''' Flow '''
         self.timerFlow = QTimer(self)
         self.timerFlow.setInterval(500)
-        self.timerFlow.timeout.connect(self.checkFlow)
+        self.timerFlow.timeout.connect(self.check_flow)
         self.timerFlow.start()
 
         self.p2.setGeometry(self.p1.vb.sceneBoundingRect())
@@ -623,10 +624,13 @@ class MainWindow(QMainWindow):
     def ble_box_changed(self):
         self.useBLE = self.bleBox.isChecked()
         self.bleBox2.setChecked(self.useBLE)
+
+        now = datetime.now()
+
         if self.useBLE:
-            self.text_box.append(" > > >  Bluetooth enabled.")
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Bluetooth enabled.")
         else:
-            self.text_box.append(" > > >  Bluetooth disabled.")
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Bluetooth disabled.")
         if self.useBLE and self.BLE_device is None:
             self.scan_for_devices()
             if not self.timerCombo.isActive():
@@ -644,14 +648,14 @@ class MainWindow(QMainWindow):
         # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
         self.fft_line_channel_one.setData(self.xf_channel_one[0:constants.FFT_N1 // 10 + 1],
                                           1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[
-                                                         0:constants.FFT_N1 // 10 + 1])
+                                                                   0:constants.FFT_N1 // 10 + 1])
 
         # if self.channel_two_box.isChecked():
         self.data_line_channel_two.setData(self.x_channel_two, self.y_channel_two)  # Update the data.
         # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
         self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N1 // 10 + 1],
                                           1.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N1 // 2])[
-                                                         0:constants.FFT_N1 // 10 + 1])
+                                                                   0:constants.FFT_N1 // 10 + 1])
 
         # TODO: improve scale
         # if len(self.y_channel_one) > 2:
@@ -693,7 +697,8 @@ class MainWindow(QMainWindow):
                 y = y - np.average(y)
                 self.yf_channel_one = fft(y)
                 self.xf_channel_one = fftfreq(constants.FFT_N1, constants.SAMPLING_RATE)[:constants.FFT_N1 // 2]
-                r1 = max(1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[0:constants.FFT_N1 // 10 + 1])
+                r1 = max(1.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N1 // 2])[
+                                                  0:constants.FFT_N1 // 10 + 1])
 
         if data_two is not None:
             flow_voltage_two, temp_voltage_two = data_two
@@ -721,7 +726,8 @@ class MainWindow(QMainWindow):
                 y = y - np.average(y)
                 self.yf_channel_two = fft(y)
                 self.xf_channel_two = fftfreq(constants.FFT_N1, constants.SAMPLING_RATE)[:constants.FFT_N1 // 2]
-                r2 = max(1.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N1 // 2])[0:constants.FFT_N1 // 10 + 1])
+                r2 = max(1.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N1 // 2])[
+                                                  0:constants.FFT_N1 // 10 + 1])
 
         # TODO: improve scale
         # maxy = max(self.y)
@@ -756,28 +762,29 @@ class MainWindow(QMainWindow):
                 if len(self.values_deque) > 120:
                     self.values_deque.popleft()
 
-        N = 128
-
         def func(fx, fa, fb):
             return fa + fb * fx
 
-        if len(self.x_channel_one) > N:
+        if len(self.x_channel_one) > constants.FLOW_DETECTION_BLOCK_LEN:
             try:
-                chunk = self.y_channel_one[-N:]
+                now = datetime.now()
+
+                chunk = self.y_channel_one[-constants.FLOW_DETECTION_BLOCK_LEN:]
                 x = np.linspace(0, len(chunk), len(chunk))
                 p_opt, p_cov = curve_fit(func, x, chunk)
                 b = p_opt[1]
-                if b < -0.015:
+
+                if b < constants.FLOW_START_NEG_THRESHOLD:
                     if not self.flow_detected:
                         print("Flow detected, b: ", b)
-                        self.text_box.append(" > > >  Flow detected.")
+                        self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow detected.")
                     self.flow_detected = True
-                if b > 0.007:
+                if b > constants.FLOW_STOP_POS_THRESHOLD:
                     # print(b)
                     if self.flow_detected:
                         print("Flow stopped, b: ", b)
                         self.last_flow = time.time()
-                        self.text_box.append(" > > >  Flow stopped.")
+                        self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow stopped.")
                     self.flow_detected = False
             except OptimizeWarning as ex:
                 print("OptimizeWarning Error: ", ex)
@@ -816,13 +823,15 @@ class MainWindow(QMainWindow):
             self.add_data_point(data_one, data_two)
         except Exception as err:
             print("daq_callback error: ", err)
-            self.text_box.append(" > > >  Error: {0}".format(str(err)))
+            now = datetime.now()
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Error: {0}".format(str(err)))
             return 0
 
         return 0
 
-    def checkFlow(self):
+    def check_flow(self):
         if self.flow_detected:
+            now = datetime.now()
             if len(self.values_deque) > 10:
                 std_value = np.std(self.values_deque)
                 mean_value = np.mean(self.values_deque)
@@ -841,13 +850,13 @@ class MainWindow(QMainWindow):
                     self.flow_label2.display('')
                     self.blink_on = True
                 if not self.blink:
-                    self.text_box.append(" > > >  Calculating...")
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Calculating...")
                 self.blink = True
                 self.steady_flow = False
             else:
                 self.blink = False
                 if not self.steady_flow:
-                    self.text_box.append(" > > >  Steady flow detected.")
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Steady flow detected.")
                     self.steady_flow = True
                 values = list(self.values_deque)
                 values.sort()
@@ -863,7 +872,8 @@ class MainWindow(QMainWindow):
                     self.flow_label2.display(value)
                 except Exception as ex:
                     print(ex)
-                    self.text_box.append(" > > >  Error estimating flow: {0}".format(str(ex)))
+                    self.text_box.append(
+                        now.strftime("%Y-%m-%d %H:%M:%S") + ": Error estimating flow: {0}".format(str(ex)))
         else:
             if (time.time() - self.last_flow) > 10:
                 self.flow_label.display('000')
@@ -895,8 +905,10 @@ class MainWindow(QMainWindow):
         self.startButton.setEnabled(False)
         self.startButton2.setEnabled(False)
 
+        now = datetime.now()
+
         if self.activeDAQ:
-            self.text_box.append(" > > >  Stop data acquisition.")
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ":  Stop data acquisition.")
             self.activeDAQ = False
             self.task.stop()
             self.task.close()
@@ -920,7 +932,7 @@ class MainWindow(QMainWindow):
                 self.startButton.setEnabled(True)
                 self.startButton2.setEnabled(True)
                 return
-            self.text_box.append(" > > >  Reading sensor...")
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ":  Reading sensor...")
             self.device_combo_sc.setEnabled(False)
             self.device_combo_user.setEnabled(False)
             self.channel_one_box.setEnabled(False)
@@ -945,21 +957,21 @@ class MainWindow(QMainWindow):
                 channel = self.daq_device + "/ai2"
                 # self.device = "Dev1/ai2"
                 # print('Channel: ', channel)
-                main_channel = self.task.ai_channels.add_ai_voltage_chan(channel)
+                _ = self.task.ai_channels.add_ai_voltage_chan(channel)
 
                 channel = self.daq_device + "/ai0"
-                temp_channel = self.task.ai_channels.add_ai_voltage_chan(channel,
-                                                                         terminal_config=TerminalConfiguration.RSE)
+                _ = self.task.ai_channels.add_ai_voltage_chan(channel,
+                                                              terminal_config=TerminalConfiguration.RSE)
 
             if self.channel_two_box.isChecked():
                 channel = self.daq_device + "/ai4"
                 # self.device = "Dev1/ai2"
                 # print('Channel: ', channel)
-                main_channel = self.task.ai_channels.add_ai_voltage_chan(channel)
+                _ = self.task.ai_channels.add_ai_voltage_chan(channel)
 
                 channel = self.daq_device + "/ai5"
-                temp_channel = self.task.ai_channels.add_ai_voltage_chan(channel,
-                                                                         terminal_config=TerminalConfiguration.RSE)
+                _ = self.task.ai_channels.add_ai_voltage_chan(channel,
+                                                              terminal_config=TerminalConfiguration.RSE)
 
             self.task.timing.cfg_samp_clk_timing(100, sample_mode=AcquisitionType.CONTINUOUS)
             self.task.register_every_n_samples_acquired_into_buffer_event(10, self.daq_callback)
@@ -970,8 +982,8 @@ class MainWindow(QMainWindow):
         if self.activeBLE:
             # print("Stop BLE")
             self.activeBLE = False
-            self.array = QByteArray(b'\x00\x00')  # turn off NOTIFY for characteristic
-            self.BLE_service.writeDescriptor(self.descriptor, self.array)  # turn off NOTIFY
+            array = QByteArray(b'\x00\x00')  # turn off NOTIFY for characteristic
+            self.BLE_service.writeDescriptor(self.descriptor, array)  # turn off NOTIFY
             time.sleep(0.4)
             self.save_to_file()
             self.startButton.setText("Start")
@@ -986,7 +998,7 @@ class MainWindow(QMainWindow):
             # start receiving data from BLE
             self.BLE_service = self.controller.createServiceObject(self.BLE_UUID_service)
             self.BLE_service.error.connect(self.handleServiceError)
-            if self.BLE_service == None:
+            if self.BLE_service is None:
                 print("ERR: Cannot open service\n")
             print('Service name: ', self.BLE_service.serviceName())
             print('Service state: ', self.BLE_service.state())
@@ -1062,7 +1074,7 @@ class MainWindow(QMainWindow):
             )
             if filename:
                 print('Saving to: ', filename)
-                self.text_box.append(" > > >  Saving to: {0}".format(str(filename)))
+                self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                 self.data_channel_one.to_csv(filename, index=False)
                 p = Path(filename)
                 working_dir = str(p.parent) + "\\"
@@ -1078,7 +1090,7 @@ class MainWindow(QMainWindow):
             )
             if filename:
                 print('Saving to: ', filename)
-                self.text_box.append(" > > >  Saving to: {0}".format(str(filename)))
+                self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                 self.data_channel_two.to_csv(filename, index=False)
                 p = Path(filename)
                 working_dir = str(p.parent) + "\\"
@@ -1087,7 +1099,7 @@ class MainWindow(QMainWindow):
         with open('config.json', 'w') as f:
             json.dump(config, f)
 
-    def updateCombo(self):
+    def update_combo(self):
         # print('Thread = {}          Function = updateCombo()'.format(threading.currentThread().getName()))
         combo_ble = False
         combo_daq = False
@@ -1102,7 +1114,9 @@ class MainWindow(QMainWindow):
             self.timerCombo.setInterval(60000)
 
             for device in self.system.devices:
-                self.text_box.append(" > > >  Data acquisition system, model {0} detected.".format(device.product_type))
+                now = datetime.now()
+                self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") +
+                                     ": Data acquisition system, model {0} detected.".format(device.product_type))
                 self.device_combo_sc.addItem('DAQ: {0}'.format(device.product_type), "DAQ")
                 self.device_combo_user.addItem('DAQ: {0}'.format(device.product_type), "DAQ")
 
