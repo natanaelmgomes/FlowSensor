@@ -1,3 +1,5 @@
+import constants, filters
+
 from PyQt5.QtCore import pyqtSlot, QByteArray, QObject, pyqtSignal, QRunnable, Qt, QTimer, QDir
 from PyQt5.QtGui import QPalette, QColor, QFont, QIcon, QPixmap
 from PyQt5 import QtBluetooth as QtBt
@@ -46,34 +48,20 @@ from scipy.fft import fft, fftfreq
 
 # import threading
 # import statistics
-try:
-    # from tensorflow import config
-    # from tensorflow.keras import models
-    # tf = True
-    tf = False
-except Exception as e:
-    print(e)
-    tf = False
-    print("Tensorflow not loaded.")
+
 from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
+from scipy import signal
 import warnings
 import json
 
-if tf:
-    try:
-        gpus = config.list_physical_devices('GPU')
-        if gpus:
-            # Currently, memory growth needs to be the same across GPUs
-            for gpu in gpus:
-                config.experimental.set_memory_growth(gpu, True)
-            logical_gpus = config.list_logical_devices('GPU')
-            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
-    except Exception as e:
-        # Memory growth must be set before GPUs have been initialized
-        print(e, "- Tensorflow not loaded.")
+import timeit
+
+import logging
+import os
 
 warnings.simplefilter("error", OptimizeWarning)
+
 
 class WorkerSignals(QObject):
     """
@@ -138,8 +126,8 @@ class Worker(QRunnable):
         # Retrieve args/kwargs here; and fire processing using them
         try:
             result = self.fn(*self.args, **self.kwargs)
-        except Exception as ex:
-            print(ex)
+        except Exception as err:
+            print(err)
             traceback.print_exc()
             exc_type, value = sys.exc_info()[:2]
             self.signals.error.emit((exc_type, value, traceback.format_exc()))
@@ -160,7 +148,7 @@ class MainWindow(QMainWindow):
     BLE_characteristic_ready = pyqtSignal()
 
     ''' UI '''
-    buttonCalibrate = None
+    button_report = None
     startButton = None
     startButton2 = None
     device_combo_sc = None
@@ -168,6 +156,7 @@ class MainWindow(QMainWindow):
     ScaleBox = None
     bleBox = None
     SaveBox = None
+    raw_data_box = None
     sliderX = None
     text_box = None
     bleBox2 = None
@@ -181,6 +170,8 @@ class MainWindow(QMainWindow):
     data_line_channel_two = None
     fft_line_channel_one = None
     fft_line_channel_two = None
+    base_voltage_box = None
+    drop_voltage_box = None
     graphWidget = None
     fftWidget = None
     p1 = None
@@ -196,7 +187,7 @@ class MainWindow(QMainWindow):
     xf_channel_one = None
     yf_channel_two = None
     xf_channel_two = None
-    values_deque = []
+    filename = None
     ''' Flags '''
     calibrated = False
     calibration = None
@@ -211,6 +202,7 @@ class MainWindow(QMainWindow):
     ''' BLE '''
     useBLE = False
     activeBLE = False
+    BLE_device = None
     BLE_device = None
     BLE_scan_complete = False
     BLE_service = None
@@ -229,18 +221,29 @@ class MainWindow(QMainWindow):
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
+        logging.debug("Initialization.")
+
         ''' Design main window '''
         self.resize(1920, 1080)
-        self.setWindowIcon(QIcon('imgs/Sencilia-Logo-RGB-darkblue-cropped2.jpg'))
+        self.icon_logo = QIcon('imgs/Sencilia-Logo-RGB-darkblue-cropped2.jpg')
+        self.setWindowIcon(self.icon_logo)
         self.setWindowTitle("Sencilia Flow Sensor")
-        self._createMenuBar()
+        self._create_menu_bar()
         widget = QWidget()
         self.main_layout = QStackedLayout(widget)
-        self.setMainLayout(self.main_layout)
+        self.set_main_layout(self.main_layout)
         self.setCentralWidget(widget)
 
         ''' NI DAQ '''
         self.system = daq_system.System.local()
+        self.zi_1 = [None, None, None, None, None, None, None, None, None, None, None, None]
+        self.zi_2 = [None, None, None, None, None, None, None, None, None, None, None, None]
+        self.zi_3 = [None, None, None, None, None, None, None, None, None, None, None, None]
+        self.tempos = []
+
+        ''' Raw data '''
+        self.raw_data_channel_one = []
+        self.raw_data_channel_two = []
 
         ''' Graph '''
         self.p3 = pg.PlotItem()
@@ -263,29 +266,30 @@ class MainWindow(QMainWindow):
         self.p2.addItem(self.data_line_channel_two)
 
         ''' FFT '''
-        self.N = 1024
-        self.T = 1.0 / 10.0
-        self.yf_channel_one = fft(self.y_channel_one)
-        self.xf_channel_one = fftfreq(self.N, self.T)[:self.N // 2]
+        self.yf_channel_one = fft(self.y_channel_one, constants.FFT_N2)
+        self.yf_channel_one = 2.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N2 // 2])
+        self.xf_channel_one = fftfreq(constants.FFT_N2, constants.SAMPLING_RATE)[:constants.FFT_N2 // 2]
         self.fft_line_channel_one = self.fftWidget.plot(
-            self.xf_channel_one[0:self.N // 10 + 1],
-            1.0 / self.N * np.abs(self.yf_channel_one[0:self.N // 2])[0:self.N // 10 + 1],
+            self.xf_channel_one[0:constants.FFT_N2 // 7 + 1],
+            self.yf_channel_one[0:constants.FFT_N2 // 7 + 1],
             pen=pg.mkPen(color=(255, 20, 20, 255))
         )
         self.fft_line_channel_two = self.fftWidget.plot(
-            list(np.linspace(0, 1, 256)),
-            [random() * 128 for _ in range(256)],
+            list(np.linspace(
+                0,
+                self.xf_channel_one[0:constants.FFT_N2 // 7 + 1][-1],
+                len(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1]))),
+            [random() * 32 + 16 for _ in range(len(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1]))],
             pen=pg.mkPen(color=(20, 255, 20, 255))
         )
 
         ''' Timer '''
         self.timerCombo = QTimer(self)
         self.timerCombo.setInterval(500)
-        self.timerCombo.timeout.connect(self.updateCombo)
+        self.timerCombo.timeout.connect(self.update_combo)
         self.timerCombo.start()
 
         self.timeCounter = Decimal('0.0')
-        # print(threading.currentThread().getName())
         self.signalComm = SignalCommunicate()
         self.signalComm.request_graph_update.connect(self.update_graph)
         self.last_flow = time.time() - 11
@@ -293,14 +297,8 @@ class MainWindow(QMainWindow):
         ''' Calibration '''
         self.calibrateData = 0
 
-        ''' Tensorflow '''
-        if tf:
-            self.model = models.load_model('D:/RUG/Dev/Notebooks/models/2021-10-19 first working model')
-            self.model.summary()
-            self.values_deque = deque()
-        # except Exception as e:
-        #     print(e, "- Tensorflow not loaded.")
-        # end Tensorflow
+        ''' Flow estimation through frequency components '''
+        self.values_deque = deque()
 
         ''' BLE '''
         # print('Thread = {}          Function = init()'.format(threading.currentThread().getName()))
@@ -315,7 +313,7 @@ class MainWindow(QMainWindow):
         ''' Flow '''
         self.timerFlow = QTimer(self)
         self.timerFlow.setInterval(500)
-        self.timerFlow.timeout.connect(self.checkFlow)
+        self.timerFlow.timeout.connect(self.check_flow)
         self.timerFlow.start()
 
         self.p2.setGeometry(self.p1.vb.sceneBoundingRect())
@@ -335,14 +333,14 @@ class MainWindow(QMainWindow):
     from BLEfunctions import handleServiceError
     from BLEfunctions import handleServiceOpened
 
-    def setMainLayout(self, layout):
-        scientific = self.scientificWidget()
-        user = self.userWidget()
+    def set_main_layout(self, layout):
+        scientific = self.scientific_widget()
+        user = self.user_widget()
 
         layout.addWidget(scientific)
         layout.addWidget(user)
 
-    def scientificWidget(self):
+    def scientific_widget(self):
         scientific_widget = QWidget(self)
         scientific_layout = QHBoxLayout(scientific_widget)
 
@@ -353,8 +351,6 @@ class MainWindow(QMainWindow):
 
         self.p1 = self.graphWidget.plotItem
         vb = self.p1.getViewBox()
-        # print(vb)
-        # print(self.p1.vb)
         self.p2 = pg.ViewBox()
         self.p1.showAxis('right')
         self.p1.scene().addItem(self.p2)
@@ -362,8 +358,8 @@ class MainWindow(QMainWindow):
         self.p1.getAxis('right').linkToView(self.p2)
         self.p2.setXLink(self.p1)
 
-        self.updateGraphViews()
-        self.p1.vb.sigResized.connect(self.updateGraphViews)
+        self._update_graph_views()
+        self.p1.vb.sigResized.connect(self._update_graph_views)
 
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
@@ -396,6 +392,9 @@ class MainWindow(QMainWindow):
         self.SaveBox = QCheckBox("Save data")
         self.SaveBox.setChecked(True)
 
+        self.raw_data_box = QCheckBox("Save raw data")
+        self.raw_data_box.setChecked(False)
+
         self.sliderX = QSlider(Qt.Horizontal)
         self.sliderX.setTickInterval(10)
         self.sliderX.setSingleStep(1)
@@ -403,14 +402,14 @@ class MainWindow(QMainWindow):
         self.sliderX.setEnabled(False)
 
         self.ScaleBox = QCheckBox("Full scale")
-        self.ScaleBox.stateChanged.connect(self.ScaleBoxChanged)
+        self.ScaleBox.stateChanged.connect(self.scale_box_changed)
         self.ScaleBox.setChecked(True)
 
         self.startButton = QPushButton("Start")
         self.startButton.pressed.connect(self.start_button_click)
 
-        self.buttonCalibrate = QPushButton("Calibrate")
-        self.buttonCalibrate.pressed.connect(self.calibrateButtonClick)
+        self.button_report = QPushButton("Report")
+        self.button_report.pressed.connect(self.report_button_click)
 
         self.flow_label = QLCDNumber()
         self.flow_label.display('000')
@@ -432,8 +431,9 @@ class MainWindow(QMainWindow):
         right_layout.addStretch()
         right_layout.addWidget(channel_widget)
         right_layout.addWidget(self.startButton)
-        right_layout.addWidget(self.buttonCalibrate)
+        right_layout.addWidget(self.button_report)
         right_layout.addWidget(self.SaveBox)
+        right_layout.addWidget(self.raw_data_box)
         right_layout.addStretch()
         right_layout.addWidget(self.ScaleBox)
         right_layout.addWidget(self.sliderX)
@@ -443,7 +443,7 @@ class MainWindow(QMainWindow):
         scientific_layout.addWidget(right_widget)
         return scientific_widget
 
-    def userWidget(self):
+    def user_widget(self):
         user_widget = QWidget(self)
         user_layout = QHBoxLayout(user_widget)
 
@@ -559,18 +559,21 @@ class MainWindow(QMainWindow):
 
         return user_widget
 
-    def updateGraphViews(self):
-        # view has resized; update auxiliary views to match
-        self.p2.setGeometry(self.p1.vb.sceneBoundingRect())
-        # p3.setGeometry(p1.vb.sceneBoundingRect())
+    def _update_graph_views(self):
+        try:
+            # view has resized; update auxiliary views to match
+            self.p2.setGeometry(self.p1.vb.sceneBoundingRect())
+            # p3.setGeometry(p1.vb.sceneBoundingRect())
 
-        # need to re-update linked axes since this was called
-        # incorrectly while views had different shapes.
-        # (probably this should be handled in ViewBox.resizeEvent)
-        self.p2.linkedViewChanged(self.p1.vb, self.p2.XAxis)
-        # p3.linkedViewChanged(p1.vb, p3.XAxis)
+            # need to re-update linked axes since this was called
+            # incorrectly while views had different shapes.
+            # (probably this should be handled in ViewBox.resizeEvent)
+            self.p2.linkedViewChanged(self.p1.vb, self.p2.XAxis)
+            # p3.linkedViewChanged(p1.vb, p3.XAxis)
+        except Exception as err:
+            logging.exception("_update_graph_views error: %s", str(err))
 
-    def _createMenuBar(self):
+    def _create_menu_bar(self):
         menu_bar = self.menuBar()
 
         file_menu = menu_bar.addMenu("&File")
@@ -578,6 +581,12 @@ class MainWindow(QMainWindow):
         self.new_action.setShortcut('Ctrl+N')
         self.new_action.triggered.connect(self.setup_new_data)
         file_menu.addAction(self.new_action)
+        self.open_action = QAction('&Open', self)
+        self.open_action.setShortcut('Ctrl+O')
+        self.open_action.triggered.connect(self.open_data)
+        file_menu.addAction(self.open_action)
+        file_menu.addSeparator()
+        # file_menu.addAction(QAction('', self).setSeparator(True))
         self.save_action = QAction('&Save', self)
         self.save_action.setShortcut('Ctrl+S')
         self.save_action.triggered.connect(self.save_to_file)
@@ -617,16 +626,19 @@ class MainWindow(QMainWindow):
             data_two = (flow_voltage + 20 + random(), temp_voltage)
             # self.add_data_point(data_one, None)
         except Exception as err:
-            print("ble_callback error: ", err)
+            logging.exception("ble_callback error: %s", str(err))
         self.add_data_point(data_one, data_two)
 
     def ble_box_changed(self):
         self.useBLE = self.bleBox.isChecked()
         self.bleBox2.setChecked(self.useBLE)
+
+        now = datetime.now()
+
         if self.useBLE:
-            self.text_box.append(" > > >  Bluetooth enabled.")
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Bluetooth enabled.")
         else:
-            self.text_box.append(" > > >  Bluetooth disabled.")
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Bluetooth disabled.")
         if self.useBLE and self.BLE_device is None:
             self.scan_for_devices()
             if not self.timerCombo.isActive():
@@ -638,24 +650,25 @@ class MainWindow(QMainWindow):
         self.bleBox.setChecked(self.useBLE)
 
     def update_graph(self):
-        # print('Thread = {}          Function = update_graph()'.format(threading.currentThread().getName()))
-        # if self.channel_one_box.isChecked():
-        self.data_line_channel_one.setData(self.x_channel_one, self.y_channel_one)  # Update the data.
-        # self.fft_line.setData(self.xf, 2.0 / self.N * np.abs(self.yf[0:self.N // 2]))
-        self.fft_line_channel_one.setData(self.xf_channel_one[0:self.N // 10 + 1],
-                                          1.0 / self.N * np.abs(self.yf_channel_one[0:self.N // 2])[
-                                                         0:self.N // 10 + 1])
+        try:
+            # print('Thread = {}          Function = update_graph()'.format(threading.currentThread().getName()))
+            # if self.channel_one_box.isChecked():
+            self.data_line_channel_one.setData(self.x_channel_one, self.y_channel_one)  # Update the data.
+            # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
+            self.fft_line_channel_one.setData(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1],
+                                              self.yf_channel_one[0:constants.FFT_N2 // 7 + 1])
 
-        # if self.channel_two_box.isChecked():
-        self.data_line_channel_two.setData(self.x_channel_two, self.y_channel_two)  # Update the data.
-        # self.fft_line.setData(self.xf, 2.0 / self.N * np.abs(self.yf[0:self.N // 2]))
-        self.fft_line_channel_two.setData(self.xf_channel_two[0:self.N // 10 + 1],
-                                          1.0 / self.N * np.abs(self.yf_channel_two[0:self.N // 2])[
-                                                         0:self.N // 10 + 1])
+            # if self.channel_two_box.isChecked():
+            self.data_line_channel_two.setData(self.x_channel_two, self.y_channel_two)  # Update the data.
+            # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
+            self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N2 // 7 + 1],
+                                              self.yf_channel_two[0:constants.FFT_N2 // 7 + 1])
 
-        # TODO: improve scale
-        # if len(self.y_channel_one) > 2:
-        #     self.p1.setYRange(min(self.y_channel_one), max(self.y_channel_one))
+            # TODO: improve scale
+            # if len(self.y_channel_one) > 2:
+            #     self.p1.setYRange(min(self.y_channel_one), max(self.y_channel_one))
+        except Exception as err:
+            logging.exception("update_graph error: %s", str(err))
 
     def add_data_point(self, data_one=None, data_two=None):
 
@@ -672,15 +685,18 @@ class MainWindow(QMainWindow):
             if len(self.x_channel_one) == 0:
                 self.x_channel_one.append(0)
             else:
-                self.x_channel_one.append(self.x_channel_one[-1] + 1)
+                self.x_channel_one.append(self.x_channel_one[-1] + 0.1)
             self.y_channel_one.append(flow_voltage_one)
             if not self.ScaleBox.isChecked():
                 while len(self.x_channel_one) > self.maxX:
                     self.x_channel_one = self.x_channel_one[1:]
                     self.y_channel_one = self.y_channel_one[1:]
             beta = 3760
-            resistance = 9990 / ((5 / temp_voltage_one) - 1)
-            temperature = beta / log(resistance / (12000 * exp(- beta / 298.15))) - 273.15
+            try:
+                resistance = 9990 / ((5 / temp_voltage_one) - 1)
+                temperature = beta / log(resistance / (12000 * exp(- beta / 298.15))) - 273.15
+            except Exception as err:
+                logging.exception("math error: %s", str(err))
             datapoint = {'timestamp': timestamp,
                          'time': self.timeCounter,
                          'flow_voltage': flow_voltage_one,
@@ -688,27 +704,31 @@ class MainWindow(QMainWindow):
                          'temperature': temperature}
             self.data_channel_one = self.data_channel_one.append(datapoint, ignore_index=True)
             ''' FFT'''
-            if len(self.x_channel_one) > self.N:
-                y = self.y_channel_one[-self.N:]
+            if len(self.x_channel_one) > constants.FFT_N1:
+                y = self.y_channel_one[-constants.FFT_N1:]
                 y = y - np.average(y)
-                self.yf_channel_one = fft(y)
-                self.xf_channel_one = fftfreq(self.N, self.T)[:self.N // 2]
-                r1 = max(1.0 / self.N * np.abs(self.yf_channel_one[0:self.N // 2])[0:self.N // 10 + 1])
+                self.yf_channel_one = fft(y * constants.KAISER_WINDOW, constants.FFT_N2)
+                self.yf_channel_one = 2.0 / constants.FFT_N1 * np.abs(self.yf_channel_one[0:constants.FFT_N2 // 2])
+                self.xf_channel_one = fftfreq(constants.FFT_N2, constants.SAMPLING_RATE)[:constants.FFT_N2 // 2]
+                r1 = max(self.yf_channel_one[0:constants.FFT_N2 // 7 + 1])
 
         if data_two is not None:
             flow_voltage_two, temp_voltage_two = data_two
             if len(self.x_channel_two) == 0:
                 self.x_channel_two.append(0)
             else:
-                self.x_channel_two.append(self.x_channel_two[-1] + 1)
+                self.x_channel_two.append(self.x_channel_two[-1] + 0.1)
             self.y_channel_two.append(flow_voltage_two)
             if not self.ScaleBox.isChecked():
                 while len(self.x_channel_two) > self.maxX:
                     self.x_channel_two = self.x_channel_two[1:]
                     self.y_channel_two = self.y_channel_two[1:]
             beta = 3950
-            resistance = 9980 / ((5 / temp_voltage_two) - 1)
-            temperature = beta / log(resistance / (10000 * exp(- beta / 298.15))) - 273.15
+            try:
+                resistance = 9980 / ((5 / temp_voltage_two) - 1)
+                temperature = beta / log(resistance / (10000 * exp(- beta / 298.15))) - 273.15
+            except Exception as err:
+                logging.exception("math error: %s", str(err))
             datapoint = {'timestamp': timestamp,
                          'time': self.timeCounter,
                          'flow_voltage': flow_voltage_two,
@@ -716,12 +736,13 @@ class MainWindow(QMainWindow):
                          'temperature': temperature}
             self.data_channel_two = self.data_channel_two.append(datapoint, ignore_index=True)
             ''' FFT'''
-            if len(self.x_channel_two) > self.N:
-                y = self.y_channel_two[-self.N:]
+            if len(self.x_channel_two) > constants.FFT_N1:
+                y = self.y_channel_two[-constants.FFT_N1:]
                 y = y - np.average(y)
-                self.yf_channel_two = fft(y)
-                self.xf_channel_two = fftfreq(self.N, self.T)[:self.N // 2]
-                r2 = max(1.0 / self.N * np.abs(self.yf_channel_two[0:self.N // 2])[0:self.N // 10 + 1])
+                self.yf_channel_two = fft(y * constants.KAISER_WINDOW, constants.FFT_N2)
+                self.yf_channel_two = 2.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N2 // 2])
+                self.xf_channel_two = fftfreq(constants.FFT_N2, constants.SAMPLING_RATE)[:constants.FFT_N2 // 2]
+                r2 = max(self.yf_channel_two[0:constants.FFT_N2 // 7 + 1])
 
         # TODO: improve scale
         # maxy = max(self.y)
@@ -746,51 +767,106 @@ class MainWindow(QMainWindow):
         else:
             self.fftWidget.setYRange(0, r)
 
-        ''' Tensorflow '''
-        if len(self.x_channel_one) > 1024 and tf:
-            if len(self.x_channel_one) % 5 == 0:
-                chunk = np.array(self.y_channel_one[-1024:])
-                value = float(self.model.predict(chunk.reshape((1, 1024))))
-                self.values_deque.append(value)
+        ''' Flow estimation through frequency components '''
 
-                if len(self.values_deque) > 120:
-                    self.values_deque.popleft()
+        def freq_to_flow(frequency):
+            return frequency / 0.001251233545
 
-        N = 128
+        # 0.00123995
+        # 0.001251233545
+
+        if len(self.x_channel_one) > constants.FFT_N1:
+            yf = np.copy(self.yf_channel_one)
+            value = False
+            peaks, properties = signal.find_peaks(yf, constants.MIN_PEAKS)
+            if len(properties['peak_heights']) > 0:
+                index_max = np.argmax(properties['peak_heights'])
+                if peaks[index_max] < 30:
+                    properties['peak_heights'] = np.delete(properties['peak_heights'], index_max)
+                    peaks = np.delete(peaks, index_max)
+                    if len(properties['peak_heights']) > 0:
+                        index_max = np.argmax(properties['peak_heights'])
+                        # print("Removed the first peak, peak: ", peaks[index_max], " Frequency: ",
+                        #       peaks[index_max] / constants.FFT_N2, " Flow: ",
+                        #   freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE))
+                        value = freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE)
+                    else:
+                        # print("Removed the only peak.")
+                        value = np.NAN
+                else:
+                    # print("Using the first peak, peak: ", peaks[index_max], " Frequency: ",
+                    #       peaks[index_max] / constants.FFT_N2, " Flow: ",
+                    #       freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE))
+                    value = freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE)
+            else:
+                # print("There are no peaks.")
+                value = np.NAN
+
+            # if not value:
+            #     for j in range(int(0.00067138 * constants.FFT_N2) + 1):
+            #         yf[j] = 0.0
+            #     index_max = np.argmax(yf)
+            #     value = freq_to_flow(index_max * constants.SAMPLING_RATE / constants.FFT_N2)
+
+            self.values_deque.append(value)
+
+            if len(self.values_deque) > constants.MAX_DEQUE_SIZE:
+                self.values_deque.popleft()
+
+        ''' Flow detection '''
 
         def func(fx, fa, fb):
             return fa + fb * fx
 
-        if len(self.x_channel_one) > N:
+        if len(self.x_channel_one) > constants.FLOW_DETECTION_BLOCK_LEN:
             try:
-                chunk = self.y_channel_one[-N:]
+                now = datetime.now()
+
+                chunk = self.y_channel_one[-constants.FLOW_DETECTION_BLOCK_LEN:]
                 x = np.linspace(0, len(chunk), len(chunk))
                 p_opt, p_cov = curve_fit(func, x, chunk)
                 b = p_opt[1]
-                if b < -0.015:
+
+                if b < constants.FLOW_START_NEG_THRESHOLD:
                     if not self.flow_detected:
                         print("Flow detected, b: ", b)
-                        self.text_box.append(" > > >  Flow detected.")
+                        self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow detected.")
                     self.flow_detected = True
-                if b > 0.007:
+                if b > constants.FLOW_STOP_POS_THRESHOLD:
                     # print(b)
                     if self.flow_detected:
                         print("Flow stopped, b: ", b)
                         self.last_flow = time.time()
-                        self.text_box.append(" > > >  Flow stopped.")
+                        self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow stopped.")
                     self.flow_detected = False
-            except OptimizeWarning as ex:
-                print("OptimizeWarning Error: ", ex)
-                pass
-            except Exception as ex:
-                print("Error in curve estimation ", ex)
+            except OptimizeWarning as err:
+                logging.exception("OptimizeWarning error: %s", str(err))
+            except Exception as err:
+                logging.exception("Generic error in curve estimation: %s", str(err))
+
+            # DEBUG
+            # self.flow_detected = True
 
         self.signalComm.request_graph_update.emit()
 
     def daq_callback(self, task_handle, every_n_samples_event_type, number_of_samples, callback_data):
         # print('Thread = {}          Function = daq_callback()'.format(threading.currentThread().getName()))
+        # DEBUG
+        start_time = timeit.default_timer()
         try:
-            sample = self.task.read(number_of_samples_per_channel=10)
+            sample = self.task.read(number_of_samples_per_channel=1_000)
+            i = 0
+            if self.channel_one_box.isChecked():
+                self.raw_data_channel_one.extend(sample[i])
+
+            if self.channel_two_box.isChecked():
+                i += 2
+                self.raw_data_channel_two.extend(sample[i])
+
+            for i in range(len(sample)):
+                sample[i], self.zi_1[i] = filters.decimate(sample[i], 10, zi=self.zi_1[i])
+                sample[i], self.zi_2[i] = filters.decimate(sample[i], 10, zi=self.zi_2[i])
+                sample[i], self.zi_3[i] = filters.decimate(sample[i], 10, zi=self.zi_3[i])
             if self.discard:
                 self.discard_counter -= 1
                 if self.discard_counter < 1:
@@ -815,23 +891,27 @@ class MainWindow(QMainWindow):
 
             self.add_data_point(data_one, data_two)
         except Exception as err:
-            print("daq_callback error: ", err)
-            self.text_box.append(" > > >  Error: {0}".format(str(err)))
-            return 0
-
+            logging.exception("daq_callback error: : %s", str(err))
+        self.tempos.append(timeit.default_timer() - start_time)
+        if len(self.tempos) % 600 == 0:
+            logging.debug("[DAQ processing time] Mean: {:.4f}s, Deviation: {:.2e}s, Max: {:.4f}s".format(
+                np.mean(self.tempos), np.std(self.tempos), max(self.tempos)))
+            self.tempos = []
         return 0
 
-    def checkFlow(self):
+    def check_flow(self):
         if self.flow_detected:
-            if len(self.values_deque) > 10:
+            now = datetime.now()
+            if len(self.values_deque) > 20:
                 std_value = np.std(self.values_deque)
                 mean_value = np.mean(self.values_deque)
                 std_over_mean = abs(std_value / mean_value)
-                print("std: {:.2f}, mean: {:.2f}, ratio: {:.2f}".format(std_value, mean_value, std_over_mean))
+                logging.debug("[FLOW ESTIMATION] std: {:.2f}, mean: {:.2f}, ratio: {:.2f}".format(
+                    std_value, mean_value, std_over_mean))
             else:
                 std_over_mean = 10
 
-            if std_over_mean > 0.5:
+            if std_over_mean > 0.5 or np.isnan(np.sum(self.values_deque)):
                 if self.blink_on:
                     self.flow_label.display('---')
                     self.flow_label2.display('---')
@@ -841,29 +921,24 @@ class MainWindow(QMainWindow):
                     self.flow_label2.display('')
                     self.blink_on = True
                 if not self.blink:
-                    self.text_box.append(" > > >  Calculating...")
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Calculating...")
                 self.blink = True
                 self.steady_flow = False
             else:
                 self.blink = False
                 if not self.steady_flow:
-                    self.text_box.append(" > > >  Steady flow detected.")
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Steady flow detected.")
                     self.steady_flow = True
                 values = list(self.values_deque)
                 values.sort()
                 try:
-                    if len(values) > 112:
-                        values = values[51:111]
-                    else:
-                        values = values[int(len(values) / 5):int(4 * len(values) / 5)]
                     value = np.mean(values)
                     value = 0 if value < 0 else value
                     value = round(value)
                     self.flow_label.display(value)
                     self.flow_label2.display(value)
-                except Exception as ex:
-                    print(ex)
-                    self.text_box.append(" > > >  Error estimating flow: {0}".format(str(ex)))
+                except Exception as err:
+                    logging.exception("flow calculation error: : %s", str(err))
         else:
             if (time.time() - self.last_flow) > 10:
                 self.flow_label.display('000')
@@ -879,8 +954,16 @@ class MainWindow(QMainWindow):
                     self.blink_on = True
 
     def start_button_click(self) -> None:
+        logging.debug("start_button_click called.")
         self.deviceText = self.device_combo_sc.currentText()
         if self.deviceText == "":
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setText("Error")
+            msg.setInformativeText('No device available.')
+            msg.setWindowTitle("Error")
+            msg.exec_()
+            logging.debug("There is no device connected. Returning from start_button_click.")
             return
 
         if self.device_combo_sc.currentData() == 'BLE':
@@ -895,11 +978,14 @@ class MainWindow(QMainWindow):
         self.startButton.setEnabled(False)
         self.startButton2.setEnabled(False)
 
+        now = datetime.now()
+
         if self.activeDAQ:
-            self.text_box.append(" > > >  Stop data acquisition.")
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ":  Stop data acquisition.")
             self.activeDAQ = False
             self.task.stop()
             self.task.close()
+            logging.debug("Stop DAQ data acquisition.")
 
             self.save_to_file()
 
@@ -909,22 +995,25 @@ class MainWindow(QMainWindow):
             self.device_combo_user.setEnabled(True)
             self.channel_one_box.setEnabled(True)
             self.channel_two_box.setEnabled(True)
+            self.raw_data_box.setEnabled(True)
         elif combo_daq:
             if not self.channel_one_box.isChecked() and not self.channel_two_box.isChecked():
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Warning)
                 msg.setText("Error")
-                msg.setInformativeText('Select a channel.')
+                msg.setInformativeText('Select at least one channel.')
                 msg.setWindowTitle("Error")
                 msg.exec_()
                 self.startButton.setEnabled(True)
                 self.startButton2.setEnabled(True)
+                logging.debug("No channel selected. Returning from start_button_click.")
                 return
-            self.text_box.append(" > > >  Reading sensor...")
+            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ":  Reading sensor...")
             self.device_combo_sc.setEnabled(False)
             self.device_combo_user.setEnabled(False)
             self.channel_one_box.setEnabled(False)
             self.channel_two_box.setEnabled(False)
+            self.raw_data_box.setEnabled(False)
 
             self.setup_new_data()
 
@@ -945,39 +1034,44 @@ class MainWindow(QMainWindow):
                 channel = self.daq_device + "/ai2"
                 # self.device = "Dev1/ai2"
                 # print('Channel: ', channel)
-                main_channel = self.task.ai_channels.add_ai_voltage_chan(channel)
+                _ = self.task.ai_channels.add_ai_voltage_chan(channel,
+                                                              terminal_config=TerminalConfiguration.RSE)
 
                 channel = self.daq_device + "/ai0"
-                temp_channel = self.task.ai_channels.add_ai_voltage_chan(channel,
-                                                                         terminal_config=TerminalConfiguration.RSE)
+                _ = self.task.ai_channels.add_ai_voltage_chan(channel,
+                                                              terminal_config=TerminalConfiguration.RSE)
 
             if self.channel_two_box.isChecked():
                 channel = self.daq_device + "/ai4"
                 # self.device = "Dev1/ai2"
                 # print('Channel: ', channel)
-                main_channel = self.task.ai_channels.add_ai_voltage_chan(channel)
+                _ = self.task.ai_channels.add_ai_voltage_chan(channel,
+                                                              terminal_config=TerminalConfiguration.RSE)
 
                 channel = self.daq_device + "/ai5"
-                temp_channel = self.task.ai_channels.add_ai_voltage_chan(channel,
-                                                                         terminal_config=TerminalConfiguration.RSE)
-
-            self.task.timing.cfg_samp_clk_timing(100, sample_mode=AcquisitionType.CONTINUOUS)
-            self.task.register_every_n_samples_acquired_into_buffer_event(10, self.daq_callback)
+                _ = self.task.ai_channels.add_ai_voltage_chan(channel,
+                                                              terminal_config=TerminalConfiguration.RSE)
+                # DEBUG
+            self.task.timing.cfg_samp_clk_timing(10_000, sample_mode=AcquisitionType.CONTINUOUS)
+            self.task.register_every_n_samples_acquired_into_buffer_event(1_000, self.daq_callback)
             self.task.start()
+            logging.debug("Start DAQ data acquisition.")
             self.startButton.setText("Stop")
             self.startButton2.setText("Stop")
 
         if self.activeBLE:
             # print("Stop BLE")
             self.activeBLE = False
-            self.array = QByteArray(b'\x00\x00')  # turn off NOTIFY for characteristic
-            self.BLE_service.writeDescriptor(self.descriptor, self.array)  # turn off NOTIFY
+            array = QByteArray(b'\x00\x00')  # turn off NOTIFY for characteristic
+            self.BLE_service.writeDescriptor(self.descriptor, array)  # turn off NOTIFY
             time.sleep(0.4)
             self.save_to_file()
             self.startButton.setText("Start")
             self.startButton2.setText("Start")
+            logging.debug("Stop BLE data acquisition.")
             self.device_combo_sc.setEnabled(True)
             self.device_combo_user.setEnabled(True)
+            self.raw_data_box.setEnabled(True)
         elif combo_ble:
             # print("Start BLE")
             self.device_combo_sc.setEnabled(False)
@@ -986,10 +1080,10 @@ class MainWindow(QMainWindow):
             # start receiving data from BLE
             self.BLE_service = self.controller.createServiceObject(self.BLE_UUID_service)
             self.BLE_service.error.connect(self.handleServiceError)
-            if self.BLE_service == None:
+            if self.BLE_service is None:
                 print("ERR: Cannot open service\n")
-            print('Service name: ', self.BLE_service.serviceName())
-            print('Service state: ', self.BLE_service.state())
+            # print('Service name: ', self.BLE_service.serviceName())
+            # print('Service state: ', self.BLE_service.state())
 
             if self.BLE_service.state() == QtBt.QLowEnergyService.ServiceDiscovered:
                 self.handleServiceOpened(self.BLE_service.state())
@@ -999,8 +1093,11 @@ class MainWindow(QMainWindow):
                 self.BLE_service.discoverDetails()
             else:
                 print("Cannot discover service\n")
+
+            logging.debug("Start BLE data acquisition.")
             self.startButton.setText("Stop")
             self.startButton2.setText("Stop")
+            self.raw_data_box.setEnabled(False)
 
             self.activeBLE = True
 
@@ -1008,13 +1105,15 @@ class MainWindow(QMainWindow):
         self.startButton2.setEnabled(True)
 
     def setup_new_data(self):
-        if self.activeBLE or self.activeBLE:
+        logging.debug("setup_new_data called.")
+        if self.activeBLE or self.activeDAQ:
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Warning)
             msg.setText("Error")
             msg.setInformativeText('Data acquisition in progress.')
             msg.setWindowTitle("Error")
             msg.exec_()
+            logging.debug("Data acquisition in progress. Returning from setup_new_data.")
             return
         self.x_channel_one = []
         self.y_channel_one = []
@@ -1024,14 +1123,26 @@ class MainWindow(QMainWindow):
         self.y_channel_two = []
         self.xf_channel_two = []
         self.yf_channel_two = []
+
+        ''' Raw data '''
+        self.raw_data_channel_one = []
+        self.raw_data_channel_two = []
+
+        self.filename = None
+        if self.base_voltage_box is not None:
+            self.base_voltage_box.setData([], [])
+        if self.drop_voltage_box is not None:
+            self.drop_voltage_box.setData([], [])
         self.data_channel_one = pd.DataFrame(
             columns=['timestamp', 'time', 'flow_voltage', 'temp_voltage', 'temperature'])
         self.data_channel_two = pd.DataFrame(
             columns=['timestamp', 'time', 'flow_voltage', 'temp_voltage', 'temperature'])
         self.timeCounter = Decimal('0.0')
         self.signalComm.request_graph_update.emit()
+        logging.debug("setup_new_data returning.")
 
     def save_to_file(self):
+        logging.debug("save_to_file called.")
         if self.activeBLE or self.activeBLE:
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Warning)
@@ -1039,19 +1150,19 @@ class MainWindow(QMainWindow):
             msg.setInformativeText('Data acquisition in progress.')
             msg.setWindowTitle("Error")
             msg.exec_()
+            logging.debug("Data acquisition in progress. Returning from save_to_file.")
             return
         try:
             with open('config.json', 'r') as f:
                 config = json.load(f)
                 working_dir = config["working_dir"]
-        except Exception as ex:
-            print(ex)
+        except Exception as err:
+            logging.exception("No configuration file found. %s", str(err))
             working_dir = ""
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         now = datetime.now()
         save_file_dialog = QFileDialog()
-        # if self.channel_one_box.isChecked():
         if len(self.x_channel_one) > 0:
             filename, _ = save_file_dialog.getSaveFileName(
                 self,
@@ -1061,13 +1172,15 @@ class MainWindow(QMainWindow):
                 options=options
             )
             if filename:
-                print('Saving to: ', filename)
-                self.text_box.append(" > > >  Saving to: {0}".format(str(filename)))
+                logging.debug("Saving to: {0}".format(str(filename)))
+                self.filename = filename
+                self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                 self.data_channel_one.to_csv(filename, index=False)
                 p = Path(filename)
                 working_dir = str(p.parent) + "\\"
+            else:
+                logging.debug("Not saving file 1.")
 
-        # if self.channel_two_box.isChecked():
         if len(self.x_channel_two) > 0:
             filename, _ = save_file_dialog.getSaveFileName(
                 self,
@@ -1077,17 +1190,116 @@ class MainWindow(QMainWindow):
                 options=options
             )
             if filename:
-                print('Saving to: ', filename)
-                self.text_box.append(" > > >  Saving to: {0}".format(str(filename)))
+                logging.debug("Saving to: {0}".format(str(filename)))
+                # print('Saving to: ', filename)
+                self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                 self.data_channel_two.to_csv(filename, index=False)
                 p = Path(filename)
                 working_dir = str(p.parent) + "\\"
+            else:
+                logging.debug("Not saving file 2.")
+
+            if len(self.raw_data_channel_one) > 0:
+                filename, _ = save_file_dialog.getSaveFileName(
+                    self,
+                    "Save CSV File",
+                    working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + ' raw data1.csv',
+                    filter="All Files (*);;CSV Files (*.csv)",
+                    options=options
+                )
+                if filename:
+                    QApplication.setOverrideCursor(Qt.WaitCursor)
+                    logging.debug("Saving to: {0}".format(str(filename)))
+                    # print('Saving to: ', filename)
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
+                    raw_data_one = pd.DataFrame(
+                        data=self.raw_data_channel_one,
+                        columns=['flow_voltage'])
+                    raw_data_one.to_csv(filename, index=False)
+                    p = Path(filename)
+                    working_dir = str(p.parent) + "\\"
+                    QApplication.restoreOverrideCursor()
+                else:
+                    logging.debug("Not saving raw data file 1.")
+
+            if len(self.raw_data_channel_two) > 0:
+                filename, _ = save_file_dialog.getSaveFileName(
+                    self,
+                    "Save CSV File",
+                    working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + ' raw data2.csv',
+                    filter="All Files (*);;CSV Files (*.csv)",
+                    options=options
+                )
+                if filename:
+                    QApplication.setOverrideCursor(Qt.WaitCursor)
+                    logging.debug("Saving to: {0}".format(str(filename)))
+                    # print('Saving to: ', filename)
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
+                    raw_data_two = pd.DataFrame(
+                        data=self.raw_data_channel_two,
+                        columns=['flow_voltage'])
+                    raw_data_two.to_csv(filename, index=False)
+                    p = Path(filename)
+                    working_dir = str(p.parent) + "\\"
+                    QApplication.restoreOverrideCursor()
+                else:
+                    logging.debug("Not saving raw data file 2.")
+
+            self.raw_data_channel_one = []
+            self.raw_data_channel_two = []
 
         config = {'working_dir': working_dir}
         with open('config.json', 'w') as f:
             json.dump(config, f)
+            logging.debug("Configuration file saved.")
 
-    def updateCombo(self):
+    def open_data(self):
+        logging.debug("open_data called.")
+        if self.activeBLE or self.activeDAQ:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setText("Error")
+            msg.setInformativeText('Data acquisition in progress.')
+            msg.setWindowTitle("Error")
+            msg.exec_()
+            logging.debug("Data acquisition in progress, returning from open_data.")
+            return
+
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        filename, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "",
+                                                  "Data files (*.csv);;All Files (*)", options=options)
+
+        if filename:
+            logging.debug("filename: %s", filename)
+            pd_file = pd.read_csv(filename)
+
+            try:
+                y = pd_file['flow_voltage']
+            except KeyError as err:
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Warning)
+                msg.setText("Error")
+                msg.setInformativeText('Incompatible file format.')
+                msg.setWindowTitle("Error")
+                msg.exec_()
+                logging.exception("Incompatible file format. Exception: %s", str(err))
+                return
+
+            self.setup_new_data()
+
+            self.x_channel_one = np.array(list(range(len(y)))) / 10
+            self.y_channel_one = y
+
+            self.filename = filename
+            logging.debug("File loaded, updating graph.")
+
+            self.signalComm.request_graph_update.emit()
+        else:
+            logging.debug("No file selected.")
+
+    def update_combo(self):
+        logging.debug("update_combo called.")
         # print('Thread = {}          Function = updateCombo()'.format(threading.currentThread().getName()))
         combo_ble = False
         combo_daq = False
@@ -1102,9 +1314,13 @@ class MainWindow(QMainWindow):
             self.timerCombo.setInterval(60000)
 
             for device in self.system.devices:
-                self.text_box.append(" > > >  Data acquisition system, model {0} detected.".format(device.product_type))
+                now = datetime.now()
+                self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") +
+                                     ": Data acquisition system, model {0} detected.".format(device.product_type))
                 self.device_combo_sc.addItem('DAQ: {0}'.format(device.product_type), "DAQ")
                 self.device_combo_user.addItem('DAQ: {0}'.format(device.product_type), "DAQ")
+
+                logging.debug("Data acquisition system, model {0} detected.".format(device.product_type))
 
         if not self.scanning:
             if self.BLE_device is not None:
@@ -1134,16 +1350,117 @@ class MainWindow(QMainWindow):
         # # TODO: this code is for debug
         # self.startButton.setEnabled(True)
 
-    def calibrateButtonClick(self):
-        if len(self.x_channel_one) < 200:
+    def report_button_click(self):
+        logging.debug("Report button pressed.")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        if len(self.x_channel_one) < 1:
             print("Need more data.")
             return
 
-        self.calibrateData = self.y_channel_one[-200:]
-        self.calibration = np.average(self.calibrateData)
-        self.calibrated = True
+        def func(fx, fa, fb):
+            return fa + fb * fx
 
-    def ScaleBoxChanged(self):
+        flow_detected_channel_1 = False
+        starting_index_channel_1 = 0
+        stopping_index_channel_1 = 0
+        for i in range(len(self.y_channel_one) - constants.FLOW_DETECTION_BLOCK_LEN):
+            cut = self.y_channel_one[i - constants.FLOW_DETECTION_BLOCK_LEN:i]
+            if len(cut) < constants.FLOW_DETECTION_BLOCK_LEN:
+                continue
+            x = np.linspace(0, len(cut), len(cut))
+            try:
+                popt, pcov = curve_fit(func, x, cut)
+            except OptimizeWarning as err:
+                logging.exception("report_button_click OptimizeWarning error: %s", str(err))
+            except Exception as err:
+                logging.exception("report_button_click curve_fit error: %s", str(err))
+
+            if popt[1] < constants.FLOW_START_NEG_THRESHOLD and not flow_detected_channel_1:
+                flow_detected_channel_1 = True
+                starting_index_channel_1 = i
+            if popt[1] > constants.FLOW_STOP_POS_THRESHOLD:
+                if flow_detected_channel_1: stopping_index_channel_1 = i
+                break
+                # flow_detected_channel_1 = False
+
+        if starting_index_channel_1 == 0 or stopping_index_channel_1 == 0:
+            QApplication.restoreOverrideCursor()
+            logging.error("report_button_click flow not detected, starting_index_channel_1=%s, " +
+                          "stopping_index_channel_1=%s  ", starting_index_channel_1, stopping_index_channel_1)
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setText("Error")
+            msg.setInformativeText('Flow not detected on data.')
+            msg.setWindowTitle("Error")
+            msg.exec_()
+            return
+
+        base_start = starting_index_channel_1 - constants.BASE_VOLTAGE_START
+        base_stop = starting_index_channel_1 - constants.BASE_VOLTAGE_STOP
+
+        drop_start = starting_index_channel_1 + constants.DROP_VOLTAGE_START
+        drop_stop = stopping_index_channel_1 - constants.DROP_VOLTAGE_STOP
+
+        base_voltage_channel_1 = self.y_channel_one[base_start:base_stop]
+        drop_voltage_channel_1 = self.y_channel_one[drop_start:drop_stop]
+
+        avg_base = np.average(base_voltage_channel_1)
+        avg_drop = np.average(drop_voltage_channel_1)
+
+        voltage_drop = avg_base - avg_drop
+        percentage_drop = 100 - ((avg_base / avg_drop) * 100)
+
+        max_base_y = np.max(base_voltage_channel_1)
+        max_base_x = np.argmax(base_voltage_channel_1) + base_start
+        min_base_y = np.min(base_voltage_channel_1)
+        min_base_x = np.argmin(base_voltage_channel_1) + base_start
+
+        max_drop_y = np.max(drop_voltage_channel_1)
+        max_drop_x = np.argmax(drop_voltage_channel_1)
+        min_drop_y = np.min(drop_voltage_channel_1)
+        min_drop_x = np.argmin(drop_voltage_channel_1)
+
+        drop_range = np.abs(max_drop_y - min_drop_y)
+
+        # Create the box around the data used to calculate the base voltage
+        self.base_voltage_box = self.p1.plot(
+            [base_start / 10, base_stop / 10, base_stop / 10, base_start / 10, base_start / 10],
+            [min_base_y - 0.2, min_base_y - 0.2, max_base_y + 0.2, max_base_y + 0.2, min_base_y - 0.2],
+            pen=pg.mkPen(color=(20, 255, 20))
+        )
+        # Create the box around the data used to calculate the drop voltage
+        self.drop_voltage_box = self.p1.plot(
+            [drop_start / 10, drop_stop / 10, drop_stop / 10, drop_start / 10, drop_start / 10],
+            [min_drop_y - 0.2, min_drop_y - 0.2, max_drop_y + 0.2, max_drop_y + 0.2, min_drop_y - 0.2],
+            pen=pg.mkPen(color=(20, 255, 20))
+        )
+
+        report_text = "{}\t{}\t{}\t{}\tauto\tauto\t{}\t{}\t{}".format(
+            avg_base, avg_drop, voltage_drop, percentage_drop,
+            max_drop_y, min_drop_y, drop_range)
+        clipboard.setText(report_text)
+
+        logging.info(
+            "file: %s, avg_base: %s, avg_drop: %s, voltage_drop: %s, percentage_drop: %s, "
+            "max_drop: %s, min_drop: %s, drop_range: %s",
+            self.filename,
+            avg_base,
+            avg_drop,
+            voltage_drop,
+            percentage_drop,
+            max_drop_y,
+            min_drop_y,
+            drop_range
+        )
+        QApplication.restoreOverrideCursor()
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setText("Result")
+        msg.setInformativeText('Data is on clipboard.')
+        msg.setWindowTitle("Report")
+        msg.exec_()
+
+    def scale_box_changed(self):
         # print(self.ScaleBox.isChecked())
         self.sliderX.setEnabled(not self.ScaleBox.isChecked())
         # if not self.sliderX.isEnabled():
@@ -1158,11 +1475,46 @@ class MainWindow(QMainWindow):
     def close_application(self):
         self.close()
 
+    def closeEvent(self, event):
+
+        if not self.activeDAQ and not self.activeBLE:
+            event.accept()
+            logging.debug("Exiting.")
+            return
+
+        quit_msg = "Are you sure you want to exit the program?"
+        reply = QMessageBox.question(self, 'Message',
+                                     quit_msg, QMessageBox.Yes, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            logging.debug("Canceling data acquisition and exiting.")
+            self.task.stop()
+            self.task.close()
+            event.accept()
+        else:
+            logging.debug("Ignoring attempt to exit.")
+            event.ignore()
+
+
+try:
+    os.mkdir("log")
+except FileExistsError as ex:
+    pass
+
+logging.basicConfig(
+    filename="log/log.txt",
+    format='%(asctime)s: %(levelname)s - %(message)s',
+    # format='%(asctime)s %(message)s',
+    datefmt='%Y/%m/%d %I:%M:%S',
+    # encoding='utf-8',
+    level=logging.DEBUG
+)
 
 pg.setConfigOptions(antialias=True)
 
 app = QApplication(sys.argv)
 app.setStyle("Fusion")
+clipboard = app.clipboard()
 
 # Now use a palette to switch to dark colors:
 palette = QPalette()
