@@ -156,6 +156,7 @@ class MainWindow(QMainWindow):
     ScaleBox = None
     bleBox = None
     SaveBox = None
+    raw_data_box = None
     sliderX = None
     text_box = None
     bleBox2 = None
@@ -239,6 +240,10 @@ class MainWindow(QMainWindow):
         self.zi_2 = [None, None, None, None, None, None, None, None, None, None, None, None]
         self.zi_3 = [None, None, None, None, None, None, None, None, None, None, None, None]
         self.tempos = []
+
+        ''' Raw data '''
+        self.raw_data_channel_one = []
+        self.raw_data_channel_two = []
 
         ''' Graph '''
         self.p3 = pg.PlotItem()
@@ -387,6 +392,9 @@ class MainWindow(QMainWindow):
         self.SaveBox = QCheckBox("Save data")
         self.SaveBox.setChecked(True)
 
+        self.raw_data_box = QCheckBox("Save raw data")
+        self.raw_data_box.setChecked(False)
+
         self.sliderX = QSlider(Qt.Horizontal)
         self.sliderX.setTickInterval(10)
         self.sliderX.setSingleStep(1)
@@ -425,6 +433,7 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.startButton)
         right_layout.addWidget(self.button_report)
         right_layout.addWidget(self.SaveBox)
+        right_layout.addWidget(self.raw_data_box)
         right_layout.addStretch()
         right_layout.addWidget(self.ScaleBox)
         right_layout.addWidget(self.sliderX)
@@ -846,6 +855,14 @@ class MainWindow(QMainWindow):
         start_time = timeit.default_timer()
         try:
             sample = self.task.read(number_of_samples_per_channel=1_000)
+            i = 0
+            if self.channel_one_box.isChecked():
+                self.raw_data_channel_one.extend(sample[i])
+
+            if self.channel_two_box.isChecked():
+                i += 2
+                self.raw_data_channel_two.extend(sample[i])
+
             for i in range(len(sample)):
                 sample[i], self.zi_1[i] = filters.decimate(sample[i], 10, zi=self.zi_1[i])
                 sample[i], self.zi_2[i] = filters.decimate(sample[i], 10, zi=self.zi_2[i])
@@ -889,8 +906,8 @@ class MainWindow(QMainWindow):
                 std_value = np.std(self.values_deque)
                 mean_value = np.mean(self.values_deque)
                 std_over_mean = abs(std_value / mean_value)
-                print("[FLOW ESTIMATION] std: {:.2f}, mean: {:.2f}, ratio: {:.2f}".format(std_value, mean_value,
-                                                                                          std_over_mean))
+                logging.debug("[FLOW ESTIMATION] std: {:.2f}, mean: {:.2f}, ratio: {:.2f}".format(
+                    std_value, mean_value, std_over_mean))
             else:
                 std_over_mean = 10
 
@@ -978,6 +995,7 @@ class MainWindow(QMainWindow):
             self.device_combo_user.setEnabled(True)
             self.channel_one_box.setEnabled(True)
             self.channel_two_box.setEnabled(True)
+            self.raw_data_box.setEnabled(True)
         elif combo_daq:
             if not self.channel_one_box.isChecked() and not self.channel_two_box.isChecked():
                 msg = QMessageBox()
@@ -995,6 +1013,7 @@ class MainWindow(QMainWindow):
             self.device_combo_user.setEnabled(False)
             self.channel_one_box.setEnabled(False)
             self.channel_two_box.setEnabled(False)
+            self.raw_data_box.setEnabled(False)
 
             self.setup_new_data()
 
@@ -1052,6 +1071,7 @@ class MainWindow(QMainWindow):
             logging.debug("Stop BLE data acquisition.")
             self.device_combo_sc.setEnabled(True)
             self.device_combo_user.setEnabled(True)
+            self.raw_data_box.setEnabled(True)
         elif combo_ble:
             # print("Start BLE")
             self.device_combo_sc.setEnabled(False)
@@ -1077,6 +1097,7 @@ class MainWindow(QMainWindow):
             logging.debug("Start BLE data acquisition.")
             self.startButton.setText("Stop")
             self.startButton2.setText("Stop")
+            self.raw_data_box.setEnabled(False)
 
             self.activeBLE = True
 
@@ -1102,6 +1123,11 @@ class MainWindow(QMainWindow):
         self.y_channel_two = []
         self.xf_channel_two = []
         self.yf_channel_two = []
+
+        ''' Raw data '''
+        self.raw_data_channel_one = []
+        self.raw_data_channel_two = []
+
         self.filename = None
         if self.base_voltage_box is not None:
             self.base_voltage_box.setData([], [])
@@ -1172,6 +1198,55 @@ class MainWindow(QMainWindow):
                 working_dir = str(p.parent) + "\\"
             else:
                 logging.debug("Not saving file 2.")
+
+            if len(self.raw_data_channel_one) > 0:
+                filename, _ = save_file_dialog.getSaveFileName(
+                    self,
+                    "Save CSV File",
+                    working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + ' raw data1.csv',
+                    filter="All Files (*);;CSV Files (*.csv)",
+                    options=options
+                )
+                if filename:
+                    QApplication.setOverrideCursor(Qt.WaitCursor)
+                    logging.debug("Saving to: {0}".format(str(filename)))
+                    # print('Saving to: ', filename)
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
+                    raw_data_one = pd.DataFrame(
+                        data=self.raw_data_channel_one,
+                        columns=['flow_voltage'])
+                    raw_data_one.to_csv(filename, index=False)
+                    p = Path(filename)
+                    working_dir = str(p.parent) + "\\"
+                    QApplication.restoreOverrideCursor()
+                else:
+                    logging.debug("Not saving raw data file 1.")
+
+            if len(self.raw_data_channel_two) > 0:
+                filename, _ = save_file_dialog.getSaveFileName(
+                    self,
+                    "Save CSV File",
+                    working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + ' raw data2.csv',
+                    filter="All Files (*);;CSV Files (*.csv)",
+                    options=options
+                )
+                if filename:
+                    QApplication.setOverrideCursor(Qt.WaitCursor)
+                    logging.debug("Saving to: {0}".format(str(filename)))
+                    # print('Saving to: ', filename)
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
+                    raw_data_two = pd.DataFrame(
+                        data=self.raw_data_channel_two,
+                        columns=['flow_voltage'])
+                    raw_data_two.to_csv(filename, index=False)
+                    p = Path(filename)
+                    working_dir = str(p.parent) + "\\"
+                    QApplication.restoreOverrideCursor()
+                else:
+                    logging.debug("Not saving raw data file 2.")
+
+            self.raw_data_channel_one = []
+            self.raw_data_channel_two = []
 
         config = {'working_dir': working_dir}
         with open('config.json', 'w') as f:
