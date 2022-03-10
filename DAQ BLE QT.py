@@ -1,11 +1,14 @@
 import constants, filters
 
-from PyQt5.QtCore import pyqtSlot, QByteArray, QObject, pyqtSignal, QRunnable, Qt, QTimer, QDir
-from PyQt5.QtGui import QPalette, QColor, QFont, QIcon, QPixmap
+from PyQt5.QtCore import (
+    pyqtSlot, QByteArray, QObject, pyqtSignal, QRunnable, Qt, QTimer, QDir, QSettings, QSize, QPoint
+)
+from PyQt5.QtGui import QPalette, QColor, QFont, QIcon, QPixmap, QKeySequence
 from PyQt5 import QtBluetooth as QtBt
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
+    QDesktopWidget,
     QStackedLayout,
     QHBoxLayout,
     QAction,
@@ -21,6 +24,8 @@ from PyQt5.QtWidgets import (
     QTextBrowser,
     QLabel,
     QMessageBox,
+    QLineEdit,
+    QShortcut,
 )
 
 # from pyqtgraph import PlotWidget, plot
@@ -53,7 +58,6 @@ from scipy.optimize import curve_fit
 from scipy.optimize import OptimizeWarning
 from scipy import signal
 import warnings
-import json
 
 import timeit
 
@@ -165,6 +169,11 @@ class MainWindow(QMainWindow):
     flow_label2 = None
     channel_one_box = None
     channel_two_box = None
+    tester_name_box = None
+    pump_combo_sc = None
+    sensor_id_box = None
+    flow_rate_box = None
+    back_pressure_box = None
     ''' Graph '''
     data_line_channel_one = None
     data_line_channel_two = None
@@ -223,8 +232,19 @@ class MainWindow(QMainWindow):
 
         logging.debug("Initialization.")
 
+        self.settings = QSettings('Sencilia', 'Flow Sensor')
+
         ''' Design main window '''
-        self.resize(1920, 1080)
+        self.resize(self.settings.value("size", QSize(1920, 1080)))
+        qr = self.frameGeometry()
+        cp = QDesktopWidget().availableGeometry().center()
+        qr.moveCenter(cp)
+        center = qr.topLeft()
+        if center.y() < 0:
+            center.setY(0)
+        if center.x() < 0:
+            center.setX(0)
+        self.move(self.settings.value("pos", center))
         self.icon_logo = QIcon('imgs/Sencilia-Logo-RGB-darkblue-cropped2.jpg')
         self.setWindowIcon(self.icon_logo)
         self.setWindowTitle("Sencilia Flow Sensor")
@@ -234,11 +254,20 @@ class MainWindow(QMainWindow):
         self.set_main_layout(self.main_layout)
         self.setCentralWidget(widget)
 
+        # self.resize_action = QAction('&Resize', self)
+        # self.resize_action.setShortcut('')
+        # self.resize_action.triggered.connect(self._resize_window)
+
+        self.resize_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
+        self.resize_shortcut.activated.connect(self._resize_window)
+        self.sensor_id_box.setText(self.settings.value("sensor_id", ""))
+        self.tester_name_box.setText(self.settings.value("tester_name", ""))
+
         ''' NI DAQ '''
         self.system = daq_system.System.local()
-        self.zi_1 = [None, None, None, None, None, None, None, None, None, None, None, None]
-        self.zi_2 = [None, None, None, None, None, None, None, None, None, None, None, None]
-        self.zi_3 = [None, None, None, None, None, None, None, None, None, None, None, None]
+        self.zi_1 = [None] * 12
+        self.zi_2 = [None] * 12
+        self.zi_3 = [None] * 12
         self.tempos = []
 
         ''' Raw data '''
@@ -344,11 +373,10 @@ class MainWindow(QMainWindow):
         scientific_widget = QWidget(self)
         scientific_layout = QHBoxLayout(scientific_widget)
 
-        self.graphWidget = pg.PlotWidget()
-        self.fftWidget = pg.PlotWidget()
-        # self.fftWidget.getPlotItem().hideAxis('bottom')
-        # self.fftWidget.getPlotItem().hideAxis('left')
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
 
+        self.graphWidget = pg.PlotWidget()
         self.p1 = self.graphWidget.plotItem
         vb = self.p1.getViewBox()
         self.p2 = pg.ViewBox()
@@ -357,26 +385,68 @@ class MainWindow(QMainWindow):
         self.p2.setGeometry(self.p1.vb.sceneBoundingRect())
         self.p1.getAxis('right').linkToView(self.p2)
         self.p2.setXLink(self.p1)
+        left_layout.addWidget(self.graphWidget, 1)
+
+        self.fftWidget = pg.PlotWidget()
+        left_layout.addWidget(self.fftWidget, 1)
 
         self._update_graph_views()
         self.p1.vb.sigResized.connect(self._update_graph_views)
 
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.addWidget(self.graphWidget, 1)
-        left_layout.addWidget(self.fftWidget, 1)
-
-        # self.left_widget.setLayout(self.left_layout)
-        # self.left_widget.setFixedWidth(100)
         scientific_layout.addWidget(left_widget)
-        # self.mainLayout.addWidget(self.graphWidget, 1)
+
+        right_widget = QWidget()
+        right_widget.setFixedWidth(250)
+        right_layout = QVBoxLayout(right_widget)
+
+        self.flow_label = QLCDNumber()
+        self.flow_label.display('000')
+        self.flow_label.setDigitCount(3)
+        self.flow_label.setStyleSheet("QLCDNumber {color: red;}")
+        self.flow_label.setFixedWidth(200)
+        self.flow_label.setFixedHeight(125)
+        self.flow_label.setFrameStyle(QFrame.NoFrame)
+        self.flow_label.setSegmentStyle(QLCDNumber.SegmentStyle(2))
+        right_layout.addSpacing(10)
+        right_layout.addWidget(self.flow_label)
 
         self.device_combo_sc = QComboBox(self)
         self.device_combo_sc.currentIndexChanged.connect(self.device_combo_sc_changed)
+        right_layout.addSpacing(5)
+        right_layout.addWidget(self.device_combo_sc)
 
         self.bleBox = QCheckBox("Use bluetooth")
         self.bleBox.stateChanged.connect(self.ble_box_changed)
         self.bleBox.setChecked(False)
+        right_layout.addWidget(self.bleBox)
+
+        self.pump_combo_sc = QComboBox(self)
+        self.pump_combo_sc.addItem("Alaris GW Cardinal Health")
+        self.pump_combo_sc.addItem("Alaris GH Care Fusion")
+        self.pump_combo_sc.addItem("B Braun Perfusor Space")
+        # self.pump_combo_user.currentIndexChanged.connect(self.pump_combo_user_changed)
+        right_layout.addSpacing(10)
+        right_layout.addWidget(self.pump_combo_sc)
+
+        self.tester_name_box = QLineEdit()
+        self.tester_name_box.setPlaceholderText('Tester name')
+        # self.tester_name_box.setToolTip("")
+        right_layout.addWidget(self.tester_name_box)
+
+        self.sensor_id_box = QLineEdit()
+        self.sensor_id_box.setPlaceholderText('Sensor ID')
+        # self.sensor_id_box.setToolTip("")
+        right_layout.addWidget(self.sensor_id_box)
+
+        self.flow_rate_box = QLineEdit()
+        self.flow_rate_box.setPlaceholderText('Flow rate')
+        self.flow_rate_box.setToolTip("Flow rate in mL/h")
+        right_layout.addWidget(self.flow_rate_box)
+
+        self.back_pressure_box = QLineEdit()
+        self.back_pressure_box.setPlaceholderText('Backpressure')
+        self.back_pressure_box.setToolTip("Backpressure in mmHg")
+        right_layout.addWidget(self.back_pressure_box)
 
         channel_widget = QWidget()
         channel_layout = QHBoxLayout(channel_widget)
@@ -388,55 +458,38 @@ class MainWindow(QMainWindow):
         channel_layout.addWidget(self.channel_two_box)
         self.channel_one_box.setFixedWidth(100)
         self.channel_two_box.setFixedWidth(100)
+        right_layout.addStretch(1)
+        # right_layout.addSpacing(70)
+        right_layout.addWidget(channel_widget)
+
+        self.startButton = QPushButton("Start")
+        self.startButton.pressed.connect(self.start_button_click)
+        right_layout.addWidget(self.startButton)
+
+        self.button_report = QPushButton("Report")
+        self.button_report.pressed.connect(self.report_button_click)
+        right_layout.addWidget(self.button_report)
 
         self.SaveBox = QCheckBox("Save data")
         self.SaveBox.setChecked(True)
+        right_layout.addWidget(self.SaveBox)
 
         self.raw_data_box = QCheckBox("Save raw data")
         self.raw_data_box.setChecked(False)
+        right_layout.addWidget(self.raw_data_box)
 
         self.sliderX = QSlider(Qt.Horizontal)
         self.sliderX.setTickInterval(10)
         self.sliderX.setSingleStep(1)
         self.sliderX.setValue(40)
         self.sliderX.setEnabled(False)
-
         self.ScaleBox = QCheckBox("Full scale")
         self.ScaleBox.stateChanged.connect(self.scale_box_changed)
         self.ScaleBox.setChecked(True)
-
-        self.startButton = QPushButton("Start")
-        self.startButton.pressed.connect(self.start_button_click)
-
-        self.button_report = QPushButton("Report")
-        self.button_report.pressed.connect(self.report_button_click)
-
-        self.flow_label = QLCDNumber()
-        self.flow_label.display('000')
-        self.flow_label.setDigitCount(3)
-        self.flow_label.setStyleSheet("QLCDNumber {color: red;}")
-        self.flow_label.setFixedWidth(200)
-        self.flow_label.setFixedHeight(125)
-        self.flow_label.setFrameStyle(QFrame.NoFrame)
-        self.flow_label.setSegmentStyle(QLCDNumber.SegmentStyle(2))
-
-        right_widget = QWidget()
-        right_widget.setFixedWidth(250)
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.addSpacing(10)
-        right_layout.addWidget(self.flow_label)
-        right_layout.addSpacing(5)
-        right_layout.addWidget(self.device_combo_sc)
-        right_layout.addWidget(self.bleBox)
-        right_layout.addStretch()
-        right_layout.addWidget(channel_widget)
-        right_layout.addWidget(self.startButton)
-        right_layout.addWidget(self.button_report)
-        right_layout.addWidget(self.SaveBox)
-        right_layout.addWidget(self.raw_data_box)
-        right_layout.addStretch()
+        right_layout.addStretch(4)
         right_layout.addWidget(self.ScaleBox)
         right_layout.addWidget(self.sliderX)
+
         right_layout.addSpacing(10)
         right_layout.setAlignment(self.device_combo_sc, Qt.AlignTop)
 
@@ -467,7 +520,9 @@ class MainWindow(QMainWindow):
         pump_combo_user_widget = QWidget()
         pump_combo_user_layout = QHBoxLayout(pump_combo_user_widget)
         self.pump_combo_user = QComboBox(self)
-        self.pump_combo_user.addItem("Alaris GW Volumetric Pump")
+        self.pump_combo_user.addItem("Alaris GW Cardinal Health")
+        self.pump_combo_user.addItem("Alaris GH Care Fusion")
+        self.pump_combo_user.addItem("B Braun Perfusor Space")
         # self.pump_combo_user.currentIndexChanged.connect(self.pump_combo_user_changed)
         pump_combo_user_layout.addSpacing(1)
         pump_combo_user_layout.addWidget(self.pump_combo_user)
@@ -744,6 +799,17 @@ class MainWindow(QMainWindow):
                 self.xf_channel_two = fftfreq(constants.FFT_N2, constants.SAMPLING_RATE)[:constants.FFT_N2 // 2]
                 r2 = max(self.yf_channel_two[0:constants.FFT_N2 // 7 + 1])
 
+        if data_one is None and data_two is not None:
+            if len(self.x_channel_one) == 0:
+                self.x_channel_one.append(0)
+            else:
+                self.x_channel_one.append(self.x_channel_one[-1] + 0.1)
+            self.y_channel_one.append(0)
+            if not self.ScaleBox.isChecked():
+                while len(self.x_channel_one) > self.maxX:
+                    self.x_channel_one = self.x_channel_one[1:]
+                    self.y_channel_one = self.y_channel_one[1:]
+
         # TODO: improve scale
         # maxy = max(self.y)
         # miny = min(self.y)
@@ -818,7 +884,7 @@ class MainWindow(QMainWindow):
         def func(fx, fa, fb):
             return fa + fb * fx
 
-        if len(self.x_channel_one) > constants.FLOW_DETECTION_BLOCK_LEN:
+        if len(self.x_channel_one) > constants.FLOW_DETECTION_BLOCK_LEN and self.channel_one_box.isChecked():
             try:
                 now = datetime.now()
 
@@ -856,10 +922,10 @@ class MainWindow(QMainWindow):
         try:
             sample = self.task.read(number_of_samples_per_channel=1_000)
             i = 0
-            if self.channel_one_box.isChecked():
+            if self.channel_one_box.isChecked() and self.raw_data_box.isChecked():
                 self.raw_data_channel_one.extend(sample[i])
 
-            if self.channel_two_box.isChecked():
+            if self.channel_two_box.isChecked() and self.raw_data_box.isChecked():
                 i += 2
                 self.raw_data_channel_two.extend(sample[i])
 
@@ -1017,17 +1083,11 @@ class MainWindow(QMainWindow):
 
             self.setup_new_data()
 
-            # self.x = []
-            # self.y = []
-            # self.data = pd.DataFrame(columns=['timestamp', 'time', 'flow_voltage', 'temp_voltage', 'temperature'])
-            # self.timeCounter = Decimal('0.0')
-
             self.discard = True
             self.discard_counter = 9
 
             self.task = nidaqmx.Task()
             self.activeDAQ = True
-            # print(self.system.devices)
             self.daq_device = self.system.devices[self.device_combo_sc.currentIndex()].name
 
             if self.channel_one_box.isChecked():
@@ -1047,7 +1107,6 @@ class MainWindow(QMainWindow):
                 # print('Channel: ', channel)
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.RSE)
-
                 channel = self.daq_device + "/ai5"
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.RSE)
@@ -1060,7 +1119,6 @@ class MainWindow(QMainWindow):
             self.startButton2.setText("Stop")
 
         if self.activeBLE:
-            # print("Stop BLE")
             self.activeBLE = False
             array = QByteArray(b'\x00\x00')  # turn off NOTIFY for characteristic
             self.BLE_service.writeDescriptor(self.descriptor, array)  # turn off NOTIFY
@@ -1073,7 +1131,6 @@ class MainWindow(QMainWindow):
             self.device_combo_user.setEnabled(True)
             self.raw_data_box.setEnabled(True)
         elif combo_ble:
-            # print("Start BLE")
             self.device_combo_sc.setEnabled(False)
             self.device_combo_user.setEnabled(False)
             self.setup_new_data()
@@ -1082,8 +1139,6 @@ class MainWindow(QMainWindow):
             self.BLE_service.error.connect(self.handleServiceError)
             if self.BLE_service is None:
                 print("ERR: Cannot open service\n")
-            # print('Service name: ', self.BLE_service.serviceName())
-            # print('Service state: ', self.BLE_service.state())
 
             if self.BLE_service.state() == QtBt.QLowEnergyService.ServiceDiscovered:
                 self.handleServiceOpened(self.BLE_service.state())
@@ -1152,26 +1207,30 @@ class MainWindow(QMainWindow):
             msg.exec_()
             logging.debug("Data acquisition in progress. Returning from save_to_file.")
             return
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-                working_dir = config["working_dir"]
-        except Exception as err:
-            logging.exception("No configuration file found. %s", str(err))
-            working_dir = ""
+        working_dir = self.settings.value("working_dir", "")
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         now = datetime.now()
         save_file_dialog = QFileDialog()
-        if len(self.x_channel_one) > 0:
+        extra = " [" \
+                + self.tester_name_box.text() + ", " \
+                + self.sensor_id_box.text() + ", " \
+                + self.flow_rate_box.text() + ", " \
+                + self.back_pressure_box.text() + " ]"
+        invalid = '<>:"/\|?*'
+        for char in invalid:
+            extra = extra.replace(char, '')
+        if self.channel_one_box.isChecked():
             filename, _ = save_file_dialog.getSaveFileName(
                 self,
-                "Save CSV File",
-                working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + ' data1.csv',
+                "Save CSV file",
+                working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra + ' data1.csv',
                 filter="All Files (*);;CSV Files (*.csv)",
                 options=options
             )
             if filename:
+                for char in invalid:
+                    filename = filename.replace(char, '')
                 logging.debug("Saving to: {0}".format(str(filename)))
                 self.filename = filename
                 self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
@@ -1181,17 +1240,18 @@ class MainWindow(QMainWindow):
             else:
                 logging.debug("Not saving file 1.")
 
-        if len(self.x_channel_two) > 0:
+        if self.channel_two_box.isChecked():
             filename, _ = save_file_dialog.getSaveFileName(
                 self,
-                "Save CSV File",
-                working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + ' data2.csv',
+                "Save CSV file",
+                working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra + ' data2.csv',
                 filter="All Files (*);;CSV Files (*.csv)",
                 options=options
             )
             if filename:
+                for char in invalid:
+                    filename = filename.replace(char, '')
                 logging.debug("Saving to: {0}".format(str(filename)))
-                # print('Saving to: ', filename)
                 self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                 self.data_channel_two.to_csv(filename, index=False)
                 p = Path(filename)
@@ -1202,15 +1262,16 @@ class MainWindow(QMainWindow):
             if len(self.raw_data_channel_one) > 0:
                 filename, _ = save_file_dialog.getSaveFileName(
                     self,
-                    "Save CSV File",
+                    "Save CSV file",
                     working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + ' raw data1.csv',
                     filter="All Files (*);;CSV Files (*.csv)",
                     options=options
                 )
                 if filename:
                     QApplication.setOverrideCursor(Qt.WaitCursor)
+                    for char in invalid:
+                        filename = filename.replace(char, '')
                     logging.debug("Saving to: {0}".format(str(filename)))
-                    # print('Saving to: ', filename)
                     self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                     raw_data_one = pd.DataFrame(
                         data=self.raw_data_channel_one,
@@ -1225,15 +1286,16 @@ class MainWindow(QMainWindow):
             if len(self.raw_data_channel_two) > 0:
                 filename, _ = save_file_dialog.getSaveFileName(
                     self,
-                    "Save CSV File",
+                    "Save CSV file",
                     working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + ' raw data2.csv',
                     filter="All Files (*);;CSV Files (*.csv)",
                     options=options
                 )
                 if filename:
                     QApplication.setOverrideCursor(Qt.WaitCursor)
+                    for char in invalid:
+                        filename = filename.replace(char, '')
                     logging.debug("Saving to: {0}".format(str(filename)))
-                    # print('Saving to: ', filename)
                     self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                     raw_data_two = pd.DataFrame(
                         data=self.raw_data_channel_two,
@@ -1245,13 +1307,7 @@ class MainWindow(QMainWindow):
                 else:
                     logging.debug("Not saving raw data file 2.")
 
-            self.raw_data_channel_one = []
-            self.raw_data_channel_two = []
-
-        config = {'working_dir': working_dir}
-        with open('config.json', 'w') as f:
-            json.dump(config, f)
-            logging.debug("Configuration file saved.")
+        self.settings.setValue("working_dir", working_dir)
 
     def open_data(self):
         logging.debug("open_data called.")
@@ -1347,14 +1403,19 @@ class MainWindow(QMainWindow):
         if combo_ble and combo_daq:
             self.timerCombo.stop()
 
-        # # TODO: this code is for debug
-        # self.startButton.setEnabled(True)
-
     def report_button_click(self):
+        # TODO add verifications for possible empty arrays
         logging.debug("Report button pressed.")
         QApplication.setOverrideCursor(Qt.WaitCursor)
         if len(self.x_channel_one) < 1:
-            print("Need more data.")
+            QApplication.restoreOverrideCursor()
+            logging.error("report_button_click empty data")
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setText("Error")
+            msg.setInformativeText('Please, load or acquire data.')
+            msg.setWindowTitle("Error")
+            msg.exec_()
             return
 
         def func(fx, fa, fb):
@@ -1370,18 +1431,16 @@ class MainWindow(QMainWindow):
             x = np.linspace(0, len(cut), len(cut))
             try:
                 popt, pcov = curve_fit(func, x, cut)
+                if popt[1] < constants.FLOW_START_NEG_THRESHOLD and not flow_detected_channel_1:
+                    flow_detected_channel_1 = True
+                    starting_index_channel_1 = i
+                if popt[1] > constants.FLOW_STOP_POS_THRESHOLD:
+                    if flow_detected_channel_1: stopping_index_channel_1 = i
+                    break
             except OptimizeWarning as err:
                 logging.exception("report_button_click OptimizeWarning error: %s", str(err))
             except Exception as err:
                 logging.exception("report_button_click curve_fit error: %s", str(err))
-
-            if popt[1] < constants.FLOW_START_NEG_THRESHOLD and not flow_detected_channel_1:
-                flow_detected_channel_1 = True
-                starting_index_channel_1 = i
-            if popt[1] > constants.FLOW_STOP_POS_THRESHOLD:
-                if flow_detected_channel_1: stopping_index_channel_1 = i
-                break
-                # flow_detected_channel_1 = False
 
         if starting_index_channel_1 == 0 or stopping_index_channel_1 == 0:
             QApplication.restoreOverrideCursor()
@@ -1475,11 +1534,31 @@ class MainWindow(QMainWindow):
     def close_application(self):
         self.close()
 
+    def save_settings(self):
+        self.settings.setValue("size", self.size())
+        self.settings.setValue("pos", self.pos())
+        self.settings.setValue("tester_name", self.tester_name_box.text())
+        self.settings.setValue("sensor_id", self.sensor_id_box.text())
+
+    def _resize_window(self):
+        self.resize(QSize(1920, 1080))
+        qr = self.frameGeometry()
+        cp = QDesktopWidget().availableGeometry().center()
+        qr.moveCenter(cp)
+        center = qr.topLeft()
+        if center.y() < 0:
+            center.setY(0)
+        if center.x() < 0:
+            center.setX(0)
+        # print(center)
+        self.move(center)
+
     def closeEvent(self, event):
 
         if not self.activeDAQ and not self.activeBLE:
-            event.accept()
+            self.save_settings()
             logging.debug("Exiting.")
+            event.accept()
             return
 
         quit_msg = "Are you sure you want to exit the program?"
@@ -1490,6 +1569,7 @@ class MainWindow(QMainWindow):
             logging.debug("Canceling data acquisition and exiting.")
             self.task.stop()
             self.task.close()
+            self.save_settings()
             event.accept()
         else:
             logging.debug("Ignoring attempt to exit.")
