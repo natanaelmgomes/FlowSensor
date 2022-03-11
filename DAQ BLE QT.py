@@ -319,9 +319,15 @@ class MainWindow(QMainWindow):
         self.timerCombo.start()
 
         self.timeCounter = Decimal('0.0')
+
         self.signalComm = SignalCommunicate()
         self.signalComm.request_graph_update.connect(self.update_graph)
         self.last_flow = time.time() - 11
+
+        self.timer_save = QTimer(self)
+        self.timer_save.setInterval(60 * 60 * 1000)
+        self.timer_save.timeout.connect(self.timer_save_callback)
+        self.timer_save.start()
 
         ''' Calibration '''
         self.calibrateData = 0
@@ -1229,8 +1235,6 @@ class MainWindow(QMainWindow):
                 options=options
             )
             if filename:
-                for char in invalid:
-                    filename = filename.replace(char, '')
                 logging.debug("Saving to: {0}".format(str(filename)))
                 self.filename = filename
                 self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
@@ -1249,8 +1253,6 @@ class MainWindow(QMainWindow):
                 options=options
             )
             if filename:
-                for char in invalid:
-                    filename = filename.replace(char, '')
                 logging.debug("Saving to: {0}".format(str(filename)))
                 self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                 self.data_channel_two.to_csv(filename, index=False)
@@ -1269,8 +1271,6 @@ class MainWindow(QMainWindow):
                 )
                 if filename:
                     QApplication.setOverrideCursor(Qt.WaitCursor)
-                    for char in invalid:
-                        filename = filename.replace(char, '')
                     logging.debug("Saving to: {0}".format(str(filename)))
                     self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                     raw_data_one = pd.DataFrame(
@@ -1293,8 +1293,6 @@ class MainWindow(QMainWindow):
                 )
                 if filename:
                     QApplication.setOverrideCursor(Qt.WaitCursor)
-                    for char in invalid:
-                        filename = filename.replace(char, '')
                     logging.debug("Saving to: {0}".format(str(filename)))
                     self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Saving to: {0}".format(str(filename)))
                     raw_data_two = pd.DataFrame(
@@ -1530,6 +1528,58 @@ class MainWindow(QMainWindow):
 
     def device_combo_user_changed(self):
         self.device_combo_sc.setCurrentIndex(self.device_combo_user.currentIndex())
+
+    def timer_save_callback(self):
+
+        if self.activeDAQ:
+            self.task.stop()
+            working_dir = self.settings.value("working_dir", "")
+            working_dir = working_dir + "temp_data\\"
+            now = datetime.now()
+            extra = " [" \
+                    + self.tester_name_box.text() + ", " \
+                    + self.sensor_id_box.text() + ", " \
+                    + self.flow_rate_box.text() + ", " \
+                    + self.back_pressure_box.text() + " ]"
+            invalid = '<>:"/\|?*'
+            for char in invalid:
+                extra = extra.replace(char, '')
+
+            if self.channel_one_box.isChecked():
+                filename = working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra + ' data1.csv'
+                logging.debug("Saving to: {0}".format(str(filename)))
+                self.data_channel_one.to_csv(filename, index=False)
+
+            if self.channel_two_box.isChecked():
+                filename = working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra + ' data2.csv'
+                logging.debug("Saving to: {0}".format(str(filename)))
+                self.data_channel_two.to_csv(filename, index=False)
+
+            self.x_channel_one = []
+            self.y_channel_one = []
+            self.xf_channel_one = []
+            self.yf_channel_one = []
+            self.x_channel_two = []
+            self.y_channel_two = []
+            self.xf_channel_two = []
+            self.yf_channel_two = []
+
+            ''' Raw data '''
+            self.raw_data_channel_one = []
+            self.raw_data_channel_two = []
+
+            self.filename = None
+            if self.base_voltage_box is not None:
+                self.base_voltage_box.setData([], [])
+            if self.drop_voltage_box is not None:
+                self.drop_voltage_box.setData([], [])
+            self.data_channel_one = pd.DataFrame(
+                columns=['timestamp', 'time', 'flow_voltage', 'temp_voltage', 'temperature'])
+            self.data_channel_two = pd.DataFrame(
+                columns=['timestamp', 'time', 'flow_voltage', 'temp_voltage', 'temperature'])
+
+            self.task.start()
+
 
     def close_application(self):
         self.close()
