@@ -1,10 +1,29 @@
-import constants, filters
+import logging
+import os
+import struct
+import sys
+import time
+import timeit
+import traceback
+import warnings
+from collections import deque
+from datetime import datetime
+from decimal import Decimal
+from math import log, exp
+# import os
+from pathlib import Path
+from random import random
 
-from PyQt5.QtCore import (
-    pyqtSlot, QByteArray, QObject, pyqtSignal, QRunnable, Qt, QTimer, QDir, QSettings, QSize, QPoint
-)
-from PyQt5.QtGui import QPalette, QColor, QFont, QIcon, QPixmap, QKeySequence
+import nidaqmx
+import numpy as np
+import pandas as pd
+# from pyqtgraph import PlotWidget, plot
+import pyqtgraph as pg
 from PyQt5 import QtBluetooth as QtBt
+from PyQt5.QtCore import (
+    pyqtSlot, QByteArray, QObject, pyqtSignal, QRunnable, Qt, QTimer, QSettings, QSize
+)
+from PyQt5.QtGui import QPalette, QColor, QIcon, QPixmap, QKeySequence
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -27,42 +46,18 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QShortcut,
 )
-
-# from pyqtgraph import PlotWidget, plot
-import pyqtgraph as pg
-import traceback
-import sys
-import struct
-# import os
-from pathlib import Path
-from random import random
-import pandas as pd
-import time
-from datetime import datetime
-
-import nidaqmx
-from nidaqmx.constants import AcquisitionType, TerminalConfiguration  # , TaskMode
 from nidaqmx import system as daq_system
-
-from decimal import Decimal
-from collections import deque
-
-from math import log, exp
-import numpy as np
+from nidaqmx.constants import AcquisitionType, TerminalConfiguration  # , TaskMode
+from scipy import signal
 from scipy.fft import fft, fftfreq
+from scipy.optimize import OptimizeWarning
+from scipy.optimize import curve_fit
+
+import constants
+import filters
 
 # import threading
 # import statistics
-
-from scipy.optimize import curve_fit
-from scipy.optimize import OptimizeWarning
-from scipy import signal
-import warnings
-
-import timeit
-
-import logging
-import os
 
 warnings.simplefilter("error", OptimizeWarning)
 
@@ -248,7 +243,7 @@ class MainWindow(QMainWindow):
         if center.x() < 0:
             center.setX(0)
         self.move(self.settings.value("pos", center))
-        self.icon_logo = QIcon('imgs/Sencilia-Logo-RGB-darkblue-cropped2.jpg')
+        self.icon_logo = QIcon('images/Sencilia-Logo-RGB-dark-blue-cropped2.jpg')
         self.setWindowIcon(self.icon_logo)
         self.setWindowTitle("Sencilia Flow Sensor")
         self._create_menu_bar()
@@ -361,11 +356,6 @@ class MainWindow(QMainWindow):
     from BLEfunctions import deviceScanError
     from BLEfunctions import deviceScanDone
     from BLEfunctions import characteristic_ready
-    from BLEfunctions import deviceConnected
-    from BLEfunctions import deviceDisconnected
-    from BLEfunctions import errorReceived
-    from BLEfunctions import addLEservice
-    from BLEfunctions import serviceScanDone
     from BLEfunctions import handleServiceError
     from BLEfunctions import handleServiceOpened
 
@@ -583,7 +573,7 @@ class MainWindow(QMainWindow):
         left_layout.addStretch()
 
         ''' Logo '''
-        image = QPixmap('imgs/Sencilia-Logo-RGB-white-semi-isolated.png')
+        image = QPixmap('images/Sencilia-Logo-RGB-white-semi-isolated.png')
         image.setDevicePixelRatio(3)
         logo_label = QLabel()
         logo_label.setPixmap(image)
