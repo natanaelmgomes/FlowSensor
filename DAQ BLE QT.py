@@ -149,6 +149,7 @@ class SignalCommunicate(QObject):
 
 
 class MainWindow(QMainWindow):
+    # region init
     BLE_characteristic_ready = pyqtSignal()
 
     ''' UI '''
@@ -161,6 +162,7 @@ class MainWindow(QMainWindow):
     bleBox = None
     SaveBox = None
     raw_data_box = None
+    autosave_box = None
     sliderX = None
     text_box = None
     bleBox2 = None
@@ -226,6 +228,7 @@ class MainWindow(QMainWindow):
     blink = False
     blink_on = False
     steady_flow = False
+    # endregion init
 
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -324,10 +327,8 @@ class MainWindow(QMainWindow):
         self.signalComm.request_graph_update.connect(self.update_graph)
         self.last_flow = time.time() - 11
 
-        self.timer_save = QTimer(self)
-        self.timer_save.setInterval(60 * 60 * 1000)
-        self.timer_save.timeout.connect(self.timer_save_callback)
-        self.timer_save.start()
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.timeout.connect(self.autosave_callback)
 
         ''' Calibration '''
         self.calibrateData = 0
@@ -483,6 +484,11 @@ class MainWindow(QMainWindow):
         self.raw_data_box = QCheckBox("Save raw data")
         self.raw_data_box.setChecked(False)
         right_layout.addWidget(self.raw_data_box)
+
+        self.autosave_box = QCheckBox("Autosave")
+        self.autosave_box.setChecked(False)
+        self.autosave_box.stateChanged.connect(self.autosave_box_changed)
+        right_layout.addWidget(self.autosave_box)
 
         self.sliderX = QSlider(Qt.Horizontal)
         self.sliderX.setTickInterval(10)
@@ -1095,6 +1101,7 @@ class MainWindow(QMainWindow):
             self.task = nidaqmx.Task()
             self.activeDAQ = True
             self.daq_device = self.system.devices[self.device_combo_sc.currentIndex()].name
+            self.autosave_timer.setInterval(60 * 60 * 1000)
 
             if self.channel_one_box.isChecked():
                 channel = self.daq_device + "/ai2"
@@ -1523,18 +1530,29 @@ class MainWindow(QMainWindow):
         # if not self.sliderX.isEnabled():
         #     self.sliderX.set
 
+    def autosave_box_changed(self):
+        logging.debug("Autosave box changed.")
+        if self.autosave_box.isChecked():
+            self.autosave_timer.setInterval(60 * 60 * 1000)
+            self.autosave_timer.start()
+        else:
+            self.autosave_timer.stop()
+
     def device_combo_sc_changed(self):
         self.device_combo_user.setCurrentIndex(self.device_combo_sc.currentIndex())
 
     def device_combo_user_changed(self):
         self.device_combo_sc.setCurrentIndex(self.device_combo_user.currentIndex())
 
-    def timer_save_callback(self):
-
+    def autosave_callback(self):
         if self.activeDAQ:
             self.task.stop()
             working_dir = self.settings.value("working_dir", "")
             working_dir = working_dir + "temp_data\\"
+            try:
+                os.mkdir(working_dir)
+            except FileExistsError as ex:
+                pass
             now = datetime.now()
             extra = " [" \
                     + self.tester_name_box.text() + ", " \
@@ -1579,7 +1597,6 @@ class MainWindow(QMainWindow):
                 columns=['timestamp', 'time', 'flow_voltage', 'temp_voltage', 'temperature'])
 
             self.task.start()
-
 
     def close_application(self):
         self.close()
