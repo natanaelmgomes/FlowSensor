@@ -60,6 +60,7 @@ import filters
 # import statistics
 
 warnings.simplefilter("error", OptimizeWarning)
+warnings.simplefilter("error", np.ComplexWarning)
 
 
 class WorkerSignals(QObject):
@@ -164,13 +165,18 @@ class MainWindow(QMainWindow):
     SaveBox2 = None
     flow_label = None
     flow_label2 = None
+    substance_combo_user = None
     channel_one_box = None
     channel_two_box = None
     tester_name_box = None
+    pump_combo_user = None
     pump_combo_sc = None
-    sensor_id_box = None
-    flow_rate_box = None
-    back_pressure_box = None
+    sensor_id_box_one = None
+    sensor_id_box_two = None
+    flow_rate_box_one = None
+    flow_rate_box_two = None
+    back_pressure_box_one = None
+    back_pressure_box_two = None
     ''' Graph '''
     data_line_channel_one = None
     data_line_channel_two = None
@@ -223,6 +229,7 @@ class MainWindow(QMainWindow):
     blink = False
     blink_on = False
     steady_flow = False
+
     # endregion init
 
     def __init__(self, *args, **kwargs):
@@ -258,7 +265,10 @@ class MainWindow(QMainWindow):
 
         self.resize_shortcut = QShortcut(QKeySequence("Ctrl+R"), self)
         self.resize_shortcut.activated.connect(self._resize_window)
-        self.sensor_id_box.setText(self.settings.value("sensor_id", ""))
+        # print(self.pump_combo_sc.currentIndex())
+        self.pump_combo_sc.setCurrentIndex(self.settings.value("pump", 0))
+        self.sensor_id_box_one.setText(self.settings.value("sensor_id_1", ""))
+        self.sensor_id_box_two.setText(self.settings.value("sensor_id_2", ""))
         self.tester_name_box.setText(self.settings.value("tester_name", ""))
 
         ''' NI DAQ '''
@@ -418,10 +428,11 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.bleBox)
 
         self.pump_combo_sc = QComboBox(self)
-        self.pump_combo_sc.addItem("Alaris GW Cardinal Health")
-        self.pump_combo_sc.addItem("Alaris GH Care Fusion")
-        self.pump_combo_sc.addItem("B Braun Perfusor Space")
-        # self.pump_combo_user.currentIndexChanged.connect(self.pump_combo_user_changed)
+        self.pump_combo_sc.addItem("Alaris GW Cardinal Health", "ALGW")
+        self.pump_combo_sc.addItem("Alaris GH Care Fusion", "ALGH")
+        self.pump_combo_sc.addItem("B Braun Perfusor Space", "BBPS")
+        self.pump_combo_sc.addItem("Gravity", "GRAV")
+        self.pump_combo_sc.currentIndexChanged.connect(self.pump_combo_sc_changed)
         right_layout.addSpacing(10)
         right_layout.addWidget(self.pump_combo_sc)
 
@@ -430,20 +441,50 @@ class MainWindow(QMainWindow):
         # self.tester_name_box.setToolTip("")
         right_layout.addWidget(self.tester_name_box)
 
-        self.sensor_id_box = QLineEdit()
-        self.sensor_id_box.setPlaceholderText('Sensor ID')
-        # self.sensor_id_box.setToolTip("")
-        right_layout.addWidget(self.sensor_id_box)
+        sensor_id_widget = QWidget()
+        sensor_id_layout = QHBoxLayout(sensor_id_widget)
+        # back_pressure_layout.setSpacing(5)
+        sensor_id_layout.setContentsMargins(0, 0, 0, 0)
+        self.sensor_id_box_one = QLineEdit()
+        self.sensor_id_box_one.setFrame(False)
+        self.sensor_id_box_one.setPlaceholderText('Sensor 1 ID')
+        self.sensor_id_box_one.setToolTip("Sensor 1 ID")
+        self.sensor_id_box_two = QLineEdit()
+        self.sensor_id_box_two.setPlaceholderText('Sensor 2 ID')
+        self.sensor_id_box_two.setToolTip("Sensor 2 ID")
+        sensor_id_layout.addWidget(self.sensor_id_box_one)
+        sensor_id_layout.addWidget(self.sensor_id_box_two)
+        right_layout.addWidget(sensor_id_widget)
 
-        self.flow_rate_box = QLineEdit()
-        self.flow_rate_box.setPlaceholderText('Flow rate')
-        self.flow_rate_box.setToolTip("Flow rate in mL/h")
-        right_layout.addWidget(self.flow_rate_box)
+        flow_rate_widget = QWidget()
+        flow_rate_layout = QHBoxLayout(flow_rate_widget)
+        # back_pressure_layout.setSpacing(5)
+        flow_rate_layout.setContentsMargins(0, 0, 0, 0)
+        self.flow_rate_box_one = QLineEdit()
+        self.flow_rate_box_one.setFrame(False)
+        self.flow_rate_box_one.setPlaceholderText('Flow rate')
+        self.flow_rate_box_one.setToolTip("Flow rate in channel 1 in mL/h")
+        self.flow_rate_box_two = QLineEdit()
+        self.flow_rate_box_two.setPlaceholderText('Flow rate')
+        self.flow_rate_box_two.setToolTip("Flow rate in channel 2 in mL/h")
+        flow_rate_layout.addWidget(self.flow_rate_box_one)
+        flow_rate_layout.addWidget(self.flow_rate_box_two)
+        right_layout.addWidget(flow_rate_widget)
 
-        self.back_pressure_box = QLineEdit()
-        self.back_pressure_box.setPlaceholderText('Backpressure')
-        self.back_pressure_box.setToolTip("Backpressure in mmHg")
-        right_layout.addWidget(self.back_pressure_box)
+        back_pressure_widget = QWidget()
+        back_pressure_layout = QHBoxLayout(back_pressure_widget)
+        # back_pressure_layout.setSpacing(5)
+        back_pressure_layout.setContentsMargins(0, 0, 0, 0)
+        self.back_pressure_box_one = QLineEdit()
+        self.back_pressure_box_one.setFrame(False)
+        self.back_pressure_box_one.setPlaceholderText('Backpressure')
+        self.back_pressure_box_one.setToolTip("Backpressure in channel 1 in mmHg")
+        self.back_pressure_box_two = QLineEdit()
+        self.back_pressure_box_two.setPlaceholderText('Backpressure')
+        self.back_pressure_box_two.setToolTip("Backpressure in channel 2 in mmHg")
+        back_pressure_layout.addWidget(self.back_pressure_box_one)
+        back_pressure_layout.addWidget(self.back_pressure_box_two)
+        right_layout.addWidget(back_pressure_widget)
 
         channel_widget = QWidget()
         channel_layout = QHBoxLayout(channel_widget)
@@ -525,7 +566,8 @@ class MainWindow(QMainWindow):
         self.pump_combo_user.addItem("Alaris GW Cardinal Health")
         self.pump_combo_user.addItem("Alaris GH Care Fusion")
         self.pump_combo_user.addItem("B Braun Perfusor Space")
-        # self.pump_combo_user.currentIndexChanged.connect(self.pump_combo_user_changed)
+        self.pump_combo_user.addItem("Gravity", "GRAV")
+        self.pump_combo_user.currentIndexChanged.connect(self.pump_combo_user_changed)
         pump_combo_user_layout.addSpacing(1)
         pump_combo_user_layout.addWidget(self.pump_combo_user)
         pump_combo_user_layout.addSpacing(1)
@@ -656,15 +698,16 @@ class MainWindow(QMainWindow):
 
         edit_menu = menu_bar.addMenu("&Edit")
 
-        window_menu = menu_bar.addMenu("&Window")
+        view_menu = menu_bar.addMenu("&View")
         self.scientific_action = QAction('&Scientific', self)
         self.scientific_action.setShortcut('Ctrl+Y')
         self.scientific_action.triggered.connect(self.scientific_action_call)
-        window_menu.addAction(self.scientific_action)
+        view_menu.addAction(self.scientific_action)
         self.user_action = QAction('&User', self)
         self.user_action.setShortcut('Ctrl+U')
         self.user_action.triggered.connect(self.user_action_call)
-        window_menu.addAction(self.user_action)
+        view_menu.addAction(self.user_action)
+
         help_menu = menu_bar.addMenu("&Help")
 
     def scientific_action_call(self):
@@ -1215,19 +1258,44 @@ class MainWindow(QMainWindow):
         options |= QFileDialog.DontUseNativeDialog
         now = datetime.now()
         save_file_dialog = QFileDialog()
-        extra = " [" \
-                + self.tester_name_box.text() + ", " \
-                + self.sensor_id_box.text() + ", " \
-                + self.flow_rate_box.text() + ", " \
-                + self.back_pressure_box.text() + " ]"
-        invalid = '<>:"/\|?*'
+        sensor_id_box_one_text = self.sensor_id_box_one.text()
+        if sensor_id_box_one_text == "":
+            sensor_id_box_one_text = "Sensor"
+        flow_rate_box_one_text = self.flow_rate_box_one.text()
+        if flow_rate_box_one_text == "":
+            flow_rate_box_one_text = "0"
+        back_pressure_box_one_text = self.back_pressure_box_one.text()
+        if back_pressure_box_one_text == "":
+            back_pressure_box_one_text = "0"
+
+        sensor_id_box_two_text = self.sensor_id_box_two.text()
+        if sensor_id_box_two_text == "":
+            sensor_id_box_two_text = "Sensor"
+        flow_rate_box_two_text = self.flow_rate_box_two.text()
+        if flow_rate_box_two_text == "":
+            flow_rate_box_two_text = "0"
+        back_pressure_box_two_text = self.back_pressure_box_two.text()
+        if back_pressure_box_two_text == "":
+            back_pressure_box_two_text = "0"
+
+        extra1 = self.tester_name_box.text() + ", " + self.pump_combo_sc.currentData() + ", " + sensor_id_box_one_text \
+                 + ", F " + flow_rate_box_one_text + ", BP " + back_pressure_box_one_text
+        extra2 = self.tester_name_box.text() + ", " + self.pump_combo_sc.currentData() + ", " + sensor_id_box_two_text \
+                 + ", F " + flow_rate_box_two_text + ", BP " + back_pressure_box_two_text
+        invalid = r'<>:"/\|?*[]'
+
         for char in invalid:
-            extra = extra.replace(char, '')
+            extra1 = extra1.replace(char, '')
+            extra2 = extra2.replace(char, '')
+
+        extra1 = " [" + extra1 + "]"
+        extra2 = " [" + extra2 + "]"
+
         if self.channel_one_box.isChecked():
             filename, _ = save_file_dialog.getSaveFileName(
                 self,
                 "Save CSV file",
-                working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra + ' data1.csv',
+                working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra1 + ' data1.csv',
                 filter="All Files (*);;CSV Files (*.csv)",
                 options=options
             )
@@ -1245,7 +1313,7 @@ class MainWindow(QMainWindow):
             filename, _ = save_file_dialog.getSaveFileName(
                 self,
                 "Save CSV file",
-                working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra + ' data2.csv',
+                working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra2 + ' data2.csv',
                 filter="All Files (*);;CSV Files (*.csv)",
                 options=options
             )
@@ -1534,6 +1602,12 @@ class MainWindow(QMainWindow):
     def device_combo_user_changed(self):
         self.device_combo_sc.setCurrentIndex(self.device_combo_user.currentIndex())
 
+    def pump_combo_sc_changed(self):
+        self.pump_combo_user.setCurrentIndex(self.pump_combo_sc.currentIndex())
+
+    def pump_combo_user_changed(self):
+        self.pump_combo_sc.setCurrentIndex(self.pump_combo_user.currentIndex())
+
     def autosave_callback(self):
         if self.activeDAQ:
             self.task.stop()
@@ -1594,8 +1668,10 @@ class MainWindow(QMainWindow):
     def save_settings(self):
         self.settings.setValue("size", self.size())
         self.settings.setValue("pos", self.pos())
+        self.settings.setValue("pump", self.pump_combo_sc.currentIndex())
         self.settings.setValue("tester_name", self.tester_name_box.text())
-        self.settings.setValue("sensor_id", self.sensor_id_box.text())
+        self.settings.setValue("sensor_id_1", self.sensor_id_box_one.text())
+        self.settings.setValue("sensor_id_2", self.sensor_id_box_two.text())
 
     def _resize_window(self):
         self.resize(QSize(1920, 1080))
