@@ -1619,22 +1619,46 @@ class MainWindow(QMainWindow):
             except FileExistsError as ex:
                 pass
             now = datetime.now()
-            extra = " [" \
-                    + self.tester_name_box.text() + ", " \
-                    + self.sensor_id_box.text() + ", " \
-                    + self.flow_rate_box.text() + ", " \
-                    + self.back_pressure_box.text() + " ]"
-            invalid = '<>:"/\|?*'
+            sensor_id_box_one_text = self.sensor_id_box_one.text()
+            if sensor_id_box_one_text == "":
+                sensor_id_box_one_text = "Sensor"
+            flow_rate_box_one_text = self.flow_rate_box_one.text()
+            if flow_rate_box_one_text == "":
+                flow_rate_box_one_text = "0"
+            back_pressure_box_one_text = self.back_pressure_box_one.text()
+            if back_pressure_box_one_text == "":
+                back_pressure_box_one_text = "0"
+
+            sensor_id_box_two_text = self.sensor_id_box_two.text()
+            if sensor_id_box_two_text == "":
+                sensor_id_box_two_text = "Sensor"
+            flow_rate_box_two_text = self.flow_rate_box_two.text()
+            if flow_rate_box_two_text == "":
+                flow_rate_box_two_text = "0"
+            back_pressure_box_two_text = self.back_pressure_box_two.text()
+            if back_pressure_box_two_text == "":
+                back_pressure_box_two_text = "0"
+
+            extra1 = self.tester_name_box.text() + ", " + self.pump_combo_sc.currentData() + ", " + sensor_id_box_one_text \
+                     + ", F " + flow_rate_box_one_text + ", BP " + back_pressure_box_one_text
+            extra2 = self.tester_name_box.text() + ", " + self.pump_combo_sc.currentData() + ", " + sensor_id_box_two_text \
+                     + ", F " + flow_rate_box_two_text + ", BP " + back_pressure_box_two_text
+            invalid = r'<>:"/\|?*[]'
+
             for char in invalid:
-                extra = extra.replace(char, '')
+                extra1 = extra1.replace(char, '')
+                extra2 = extra2.replace(char, '')
+
+            extra1 = " [" + extra1 + "]"
+            extra2 = " [" + extra2 + "]"
 
             if self.channel_one_box.isChecked():
-                filename = working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra + ' data1.csv'
+                filename = working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra1 + ' data1.csv'
                 logging.debug("Saving to: {0}".format(str(filename)))
                 self.data_channel_one.to_csv(filename, index=False)
 
             if self.channel_two_box.isChecked():
-                filename = working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra + ' data2.csv'
+                filename = working_dir + now.strftime("%Y-%m-%d %H-%M-%S") + extra2 + ' data2.csv'
                 logging.debug("Saving to: {0}".format(str(filename)))
                 self.data_channel_two.to_csv(filename, index=False)
 
