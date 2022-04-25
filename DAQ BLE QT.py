@@ -368,6 +368,11 @@ class MainWindow(QMainWindow):
     from BLEfunctions import characteristic_ready
     from BLEfunctions import handleServiceError
     from BLEfunctions import handleServiceOpened
+    from BLEfunctions import deviceConnected
+    from BLEfunctions import deviceDisconnected
+    from BLEfunctions import errorReceived
+    from BLEfunctions import addLEservice
+    from BLEfunctions import serviceScanDone
 
     def set_main_layout(self, layout):
         scientific = self.scientific_widget()
