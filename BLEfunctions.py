@@ -1,5 +1,5 @@
-from PyQt5.QtCore import pyqtSlot, QByteArray
-from PyQt5 import QtBluetooth as QtBt
+from PyQt6.QtCore import pyqtSlot, QByteArray
+from PyQt6 import QtBluetooth as QtBt
 
 SERVICE_UUID = "A7EA14CF-1000-43BA-AB86-1D6E136A2E9E"
 CHAR_UUID = "A7EA14CF-1100-43BA-AB86-1D6E136A2E9E"
@@ -21,9 +21,10 @@ def deviceScanDone(self):
     print("Device scan done.")
     for obj in self.agent.discoveredDevices():
         try:
-            uuids, completeness = obj.serviceUuids()
+            #uuids, completeness = obj.serviceUuids()
+            uuids = obj.serviceUuids()
             for uuid in uuids:
-                # print(uuid)
+                #print(uuid)
                 if SERVICE_UUID.lower() in uuid.toString():
                     print("FOUND", uuid.toString(), ' in ', obj.name())
                     self.BLE_device = obj
@@ -36,10 +37,10 @@ def deviceScanDone(self):
         self.controller = QtBt.QLowEnergyController.createCentral(self.BLE_device)
         self.controller.connected.connect(self.deviceConnected)
         self.controller.disconnected.connect(self.deviceDisconnected)
-        self.controller.error.connect(self.errorReceived)
+        self.controller.errorOccurred.connect(self.errorReceived)
         self.controller.serviceDiscovered.connect(self.addLEservice)
         self.controller.discoveryFinished.connect(self.serviceScanDone)
-        self.controller.setRemoteAddressType(QtBt.QLowEnergyController.PublicAddress)
+        self.controller.setRemoteAddressType(QtBt.QLowEnergyController.RemoteAddressType.PublicAddress)
         self.controller.connectToDevice()
     else:
         print("Service not found.")
@@ -145,7 +146,7 @@ def handleServiceOpened(self, state):
     # if (self.openedService.state() == QtBt.QLowEnergyService.ServiceDiscovered):
     #     self.serviceOpened.emit()
     print('Service state: ', state)
-    if self.BLE_service.state() == QtBt.QLowEnergyService.ServiceDiscovered:
+    if self.BLE_service.state() == QtBt.QLowEnergyService.ServiceState.ServiceDiscovered:
         print('Characteristics:')
         for characteristic in self.BLE_service.characteristics():
             print(characteristic)
