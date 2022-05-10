@@ -721,16 +721,18 @@ class MainWindow(QMainWindow):
     def ble_callback(self, characteristic, ble_data_byte_array):
         # print(struct.unpack('f', ble_data_byte_array.data()))
 
-        try:
-            flow_voltage = struct.unpack('f', ble_data_byte_array.data())[0]
-            print(flow_voltage)
-            temp_voltage = 1
-            data_one = (flow_voltage, temp_voltage)
-            data_two = (flow_voltage + 20 + random(), temp_voltage)
-            # self.add_data_point(data_one, None)
-        except Exception as err:
-            logging.exception("ble_callback error: %s", str(err))
-        self.add_data_point(data_one, data_two)
+        print(ble_data_byte_array)
+
+        # try:
+        #     flow_voltage = struct.unpack('f', ble_data_byte_array.data())[0]
+        #     print(flow_voltage)
+        #     temp_voltage = 1
+        #     data_one = (flow_voltage, temp_voltage)
+        #     data_two = (flow_voltage + 20 + random(), temp_voltage)
+        #     # self.add_data_point(data_one, None)
+        # except Exception as err:
+        #     logging.exception("ble_callback error: %s", str(err))
+        # self.add_data_point(data_one, data_two)
 
     def ble_box_changed(self):
         self.useBLE = self.bleBox.isChecked()

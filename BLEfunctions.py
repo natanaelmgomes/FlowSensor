@@ -27,6 +27,7 @@ def deviceScanDone(self):
                 #print(uuid)
                 if SERVICE_UUID.lower() in uuid.toString():
                     print("FOUND", uuid.toString(), ' in ', obj.name())
+                    print("ADDRESS", obj.address().toString())
                     self.BLE_device = obj
                     self.BLE_UUID_service = uuid
         except Exception as e:
