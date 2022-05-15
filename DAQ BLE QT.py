@@ -6,6 +6,7 @@ import time
 import timeit
 import traceback
 import warnings
+import re
 from collections import deque
 from datetime import datetime
 from decimal import Decimal
@@ -19,9 +20,10 @@ import numpy as np
 import pandas as pd
 # from pyqtgraph import PlotWidget, plot
 import pyqtgraph as pg
+from PyQt5 import QtSerialPort
 from PyQt5 import QtBluetooth as QtBt
 from PyQt5.QtCore import (
-    pyqtSlot, QByteArray, QObject, pyqtSignal, QRunnable, Qt, QTimer, QSettings, QSize
+    pyqtSlot, QByteArray, QObject, pyqtSignal, QRunnable, Qt, QTimer, QSettings, QSize, QThread, QEventLoop, QIODevice
 )
 from PyQt5.QtGui import QPalette, QColor, QIcon, QPixmap, QKeySequence
 from PyQt5.QtWidgets import (
@@ -55,6 +57,8 @@ from scipy.optimize import curve_fit
 
 import constants
 import filters
+
+import serial
 
 # import threading
 # import statistics
@@ -144,6 +148,57 @@ class SignalCommunicate(QObject):
     request_graph_update = pyqtSignal()
 
 
+# #thread to capture the process data
+# class DataCaptureThread(QThread):
+#     new_data = pyqtSignal(float)
+#
+#     def collectProcessData(self):
+#         # print("Time: ", (timeit.default_timer() - self.last_time) * 1000)
+#         # self.last_time = timeit.default_timer()
+#         try:
+#             if self.serial_port.in_waiting > 0:
+#
+#                 # Read data out of the buffer until a carraige return / new line is found
+#                 serial_string = self.serial_port.readline()
+#
+#                 text = serial_string.decode("Ascii")
+#                 result = re.findall(r"[-+]?(?:\d*\.\d+|\d+)", text)
+#                 # print(text.split())
+#                 # print(result)
+#                 if "Received" in text:
+#                     value = float(result[2])
+#                     # print("Received Serial:", value)
+#                     self.new_data.emit(value)
+#         except serial.serialutil.SerialException as e:
+#             self.serial_port = serial.Serial(
+#                 port=self.port, baudrate=115200, bytesize=8, timeout=2, stopbits=serial.STOPBITS_ONE
+#             )
+#
+#     def __init__(self, *args, **kwargs):
+#         QThread.__init__(self, *args, **kwargs)
+#         self.dataCollectionTimer = QTimer()
+#         self.dataCollectionTimer.moveToThread(self)
+#         self.dataCollectionTimer.timeout.connect(self.collectProcessData)
+#         self.last_time = timeit.default_timer()
+#         self.port = None
+#         self.serial_port = None
+#
+#     def change_port(self, port):
+#         try:
+#             self.port = port
+#             self.serial_port = serial.Serial(
+#                 port=self.port, baudrate=115200, bytesize=8, timeout=2, stopbits=serial.STOPBITS_ONE
+#             )
+#             return 0
+#         except serial.serialutil.SerialException as e:
+#             return 1
+#
+#     def run(self):
+#         self.dataCollectionTimer.start(20)
+#         loop = QEventLoop()
+#         loop.exec_()
+
+
 class MainWindow(QMainWindow):
     # region init
     BLE_characteristic_ready = pyqtSignal()
@@ -224,6 +279,8 @@ class MainWindow(QMainWindow):
     controller = None
     serviceUid = None
     scanning = False
+    ''' Serial '''
+    activeUSB = False
     ''' Flow '''
     flow_detected = False
     blink = False
@@ -334,6 +391,11 @@ class MainWindow(QMainWindow):
 
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self.autosave_callback)
+
+        ''' Serial '''
+        # self.serial_timer = DataCaptureThread()
+        # self.serial = QtSerialPort.QSerialPort('COM3', QtSerialPort.QSerialPort.Baud115200, self.receive)
+        self.serial = QtSerialPort.QSerialPort(self)
 
         ''' Calibration '''
         self.calibrateData = 0
@@ -803,6 +865,7 @@ class MainWindow(QMainWindow):
                 # print(temperature)
             except Exception as err:
                 logging.exception("math error: %s", str(err))
+                temperature = 0.0
             datapoint = {'timestamp': timestamp,
                          'time': self.timeCounter,
                          'flow_voltage': flow_voltage_one,
@@ -835,6 +898,7 @@ class MainWindow(QMainWindow):
                 temperature = beta / log(resistance / (10000 * exp(- beta / 298.15))) - 273.15
             except Exception as err:
                 logging.exception("math error: %s", str(err))
+                temperature = 0.0
             datapoint = {'timestamp': timestamp,
                          'time': self.timeCounter,
                          'flow_voltage': flow_voltage_two,
@@ -1016,6 +1080,26 @@ class MainWindow(QMainWindow):
             self.tempos = []
         return 0
 
+    def usb_callback(self, data):
+        print(data)
+
+    @pyqtSlot()
+    def receive(self):
+        while self.serial.canReadLine():
+            text = self.serial.readLine().data().decode()
+            text = text.rstrip('\r\n')
+            result = re.findall(r"[-+]?(?:\d*\.\d+|\d+)", text)
+            # print(text.split())
+            # print(result)
+            if "Received" in text:
+                value = float(result[2])
+                # print("Received Serial:", value)
+                # self.new_data.emit(value)
+            else:
+                print(text)
+            data_one = (value, 0.0)
+            self.add_data_point(data_one, None)
+
     def check_flow(self):
         if self.flow_detected:
             now = datetime.now()
@@ -1083,12 +1167,15 @@ class MainWindow(QMainWindow):
             logging.debug("There is no device connected. Returning from start_button_click.")
             return
 
-        if self.device_combo_sc.currentData() == 'BLE':
+        combo_ble = False
+        combo_daq = False
+        combo_usb = False
+        if self.device_combo_sc.currentData()[0] == 'BLE':
             combo_ble = True
-            combo_daq = False
-        elif self.device_combo_sc.currentData() == 'DAQ':
+        elif self.device_combo_sc.currentData()[0] == 'DAQ':
             combo_daq = True
-            combo_ble = False
+        elif self.device_combo_sc.currentData()[0] == 'USB':
+            combo_usb = True
         else:
             return
 
@@ -1207,6 +1294,35 @@ class MainWindow(QMainWindow):
             self.raw_data_box.setEnabled(False)
 
             self.activeBLE = True
+
+        if self.activeUSB:
+            # self.serial_timer.terminate()
+            self.serial.close()
+            time.sleep(0.2)
+            self.save_to_file()
+            self.activeUSB = False
+            self.startButton.setText("Start")
+            self.startButton2.setText("Start")
+            self.device_combo_sc.setEnabled(True)
+            self.device_combo_user.setEnabled(True)
+            self.raw_data_box.setEnabled(True)
+        elif combo_usb:
+            self.channel_two_box.setChecked(False)
+            self.setup_new_data()
+            self.device_combo_sc.setEnabled(False)
+            self.device_combo_user.setEnabled(False)
+            self.raw_data_box.setEnabled(False)
+            self.startButton.setText("Stop")
+            self.startButton2.setText("Stop")
+            logging.debug("Start USB Serial data acquisition.")
+            # self.serial_timer.change_port(self.device_combo_sc.currentData()[1])
+            # self.serial_timer.new_data.connect(self.usb_callback)
+            # self.serial_timer.start()
+            self.serial.setPortName(self.device_combo_sc.currentData()[1])
+            self.serial.setBaudRate(115200)
+            self.serial.readyRead.connect(self.receive)
+            self.serial.open(QIODevice.ReadWrite)
+            self.activeUSB = True
 
         self.startButton.setEnabled(True)
         self.startButton2.setEnabled(True)
@@ -1424,15 +1540,18 @@ class MainWindow(QMainWindow):
             logging.debug("No file selected.")
 
     def update_combo(self):
-        logging.debug("update_combo called.")
+        # logging.debug("update_combo called.")
         # print('Thread = {}          Function = updateCombo()'.format(threading.currentThread().getName()))
         combo_ble = False
         combo_daq = False
+        combo_usb = False
         for i in range(self.device_combo_sc.count()):
-            if self.device_combo_sc.itemData(i) == "BLE":
+            if self.device_combo_sc.itemData(i)[0] == "BLE":
                 combo_ble = True
-            if self.device_combo_sc.itemData(i) == "DAQ":
+            if self.device_combo_sc.itemData(i)[0] == "DAQ":
                 combo_daq = True
+            if self.device_combo_sc.itemData(i)[0] == "USB":
+                combo_usb = True
 
         if len(self.system.devices) > 0 and not combo_daq:
             combo_daq = True
@@ -1442,8 +1561,8 @@ class MainWindow(QMainWindow):
                 now = datetime.now()
                 self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") +
                                      ": Data acquisition system, model {0} detected.".format(device.product_type))
-                self.device_combo_sc.addItem('DAQ: {0}'.format(device.product_type), "DAQ")
-                self.device_combo_user.addItem('DAQ: {0}'.format(device.product_type), "DAQ")
+                self.device_combo_sc.addItem('DAQ: {0}'.format(device.product_type), ["DAQ"])
+                self.device_combo_user.addItem('DAQ: {0}'.format(device.product_type), ["DAQ"])
 
                 logging.debug("Data acquisition system, model {0} detected.".format(device.product_type))
 
@@ -1458,13 +1577,43 @@ class MainWindow(QMainWindow):
 
         if self.BLE_scan_complete and not combo_ble:
             combo_ble = True
-            self.device_combo_sc.addItem('BLE: {0}'.format(self.controller.remoteName()), "BLE")
-            self.device_combo_user.addItem('BLE: {0}'.format(self.controller.remoteName()), "BLE")
+            self.device_combo_sc.addItem('BLE: {0}'.format(self.controller.remoteName()), ["BLE"])
+            self.device_combo_user.addItem('BLE: {0}'.format(self.controller.remoteName()), ["BLE"])
             self.timerCombo.setInterval(60000)
 
-        if combo_ble or combo_daq:
+        if not combo_usb:
+            # import sys
+            import glob
+            if sys.platform.startswith('win'):
+                ports = ['COM%s' % (i + 1) for i in range(32)]
+            elif sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
+                # this excludes your current terminal "/dev/tty"
+                ports = glob.glob('/dev/tty[A-Za-z]*')
+            elif sys.platform.startswith('darwin'):
+                ports = glob.glob('/dev/tty.*')
+            else:
+                raise EnvironmentError('Unsupported platform')
+            # print(ports)
+            result = []
+            for port in ports:
+                try:
+                    s = serial.Serial(port)
+                    s.close()
+                    result.append(port)
+                except (OSError, serial.SerialException):
+                    pass
+            print(result)
+            for port in result:
+                self.device_combo_sc.addItem('Serial: {0}'.format(port), ["USB", port])
+                self.device_combo_user.addItem('Serial: {0}'.format(port), ["USB", port])
+
+
+            # return result
+
+        if combo_ble or combo_daq or combo_usb:
             self.startButton.setEnabled(True)
             self.startButton2.setEnabled(True)
+            # self.timerCombo.stop()
         else:
             self.startButton.setEnabled(False)
             self.startButton2.setEnabled(False)
