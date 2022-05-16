@@ -804,7 +804,8 @@ class MainWindow(QMainWindow):
                 temperature = beta / log(resistance / (12000 * exp(- beta / 298.15))) - 273.15
                 # print(temperature)
             except Exception as err:
-                logging.exception("math error: %s", str(err))
+                # logging.exception("math error: %s", str(err))
+                temperature = 0.0
             datapoint = {'timestamp': timestamp,
                          'time': self.timeCounter,
                          'flow_voltage': flow_voltage_one,
@@ -836,7 +837,8 @@ class MainWindow(QMainWindow):
                 resistance = 9980 / ((5.04 / temp_voltage_two) - 1)
                 temperature = beta / log(resistance / (10000 * exp(- beta / 298.15))) - 273.15
             except Exception as err:
-                logging.exception("math error: %s", str(err))
+                # logging.exception("math error: %s", str(err))
+                temperature = 0.0
             datapoint = {'timestamp': timestamp,
                          'time': self.timeCounter,
                          'flow_voltage': flow_voltage_two,
