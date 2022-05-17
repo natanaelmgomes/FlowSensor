@@ -724,15 +724,44 @@ class MainWindow(QMainWindow):
     def ble_callback(self, characteristic, ble_data_byte_array):
         # print(struct.unpack('f', ble_data_byte_array.data()))
 
+        # print(characteristic)
+        # print(ble_data_byte_array)
+        # print(type(ble_data_byte_array))
+        # print(ble_data_byte_array.toFloat())
+        # print(ble_data_byte_array.data())
+        # print(len(ble_data_byte_array.data()))
+        # print()
+        # flow_voltage = struct.unpack('fff', ble_data_byte_array.data())
+        # print(flow_voltage)
+
         try:
-            flow_voltage = struct.unpack('f', ble_data_byte_array.data())[0]
-            temp_voltage = 1
-            data_one = (flow_voltage, temp_voltage)
-            data_two = (flow_voltage + 20 + random(), temp_voltage)
-            # self.add_data_point(data_one, None)
+            if len(ble_data_byte_array.data()) == 4:
+                flow_voltage = struct.unpack('f', ble_data_byte_array.data())
+                temp_voltage = 1
+                data_one = (flow_voltage, temp_voltage)
+                self.add_data_point(data_one, None)
+            if len(ble_data_byte_array.data()) == 8:
+                flow_voltage = struct.unpack('ff', ble_data_byte_array.data())
+                temp_voltage = 1
+                data_one = (flow_voltage[0], temp_voltage)
+                self.add_data_point(data_one, None)
+                data_one = (flow_voltage[1], temp_voltage)
+                self.add_data_point(data_one, None)
+            if len(ble_data_byte_array.data()) == 12:
+                flow_voltage = struct.unpack('fff', ble_data_byte_array.data())
+                # print(type(flow_voltage))
+                temp_voltage = 1
+                data_one = (flow_voltage[0], temp_voltage)
+                self.add_data_point(data_one, None)
+                data_one = (flow_voltage[1], temp_voltage)
+                # time.sleep(20)
+                self.add_data_point(data_one, None)
+                data_one = (flow_voltage[2], temp_voltage)
+                # time.sleep(20)
+                self.add_data_point(data_one, None)
         except Exception as err:
             logging.exception("ble_callback error: %s", str(err))
-        self.add_data_point(data_one, data_two)
+        # self.add_data_point(data_one, data_two)
 
     def ble_box_changed(self):
         self.useBLE = self.bleBox.isChecked()
@@ -809,7 +838,9 @@ class MainWindow(QMainWindow):
                          'flow_voltage': flow_voltage_one,
                          'temp_voltage': temp_voltage_one,
                          'temperature': temperature}
-            self.data_channel_one = self.data_channel_one.append(datapoint, ignore_index=True)
+            # self.data_channel_one = self.data_channel_one.append(datapoint, ignore_index=True)
+            datapoint = pd.DataFrame.from_dict(datapoint, orient='index')
+            self.data_channel_one = pd.concat([self.data_channel_one, datapoint], ignore_index=True)
             ''' FFT'''
             if len(self.x_channel_one) > constants.FFT_N1:
                 y = self.y_channel_one[-constants.FFT_N1:]
