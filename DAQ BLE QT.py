@@ -224,6 +224,7 @@ class MainWindow(QMainWindow):
     controller = None
     serviceUid = None
     scanning = False
+    ble_rx_counter = 0
     ''' Flow '''
     flow_detected = False
     blink = False
@@ -752,7 +753,10 @@ class MainWindow(QMainWindow):
                 self.add_data_point(data_one, None)
             if len(ble_data_byte_array.data()) == 16:
                 flow_voltage = struct.unpack('ffff', ble_data_byte_array.data())
-                print(" Counter: %:.2f".format(flow_voltage[0]))
+                # print(" Counter: {:.2f}".format(flow_voltage[0]))
+                if flow_voltage[0] - self.ble_rx_counter > 1.01:
+                    print("Packages missing: {:.0f}".format(flow_voltage[0] - self.ble_rx_counter))
+                self.ble_rx_counter = flow_voltage[0]
                 data_one = (flow_voltage[1], 1)
                 self.add_data_point(data_one, None)
                 data_one = (flow_voltage[2], 1)
