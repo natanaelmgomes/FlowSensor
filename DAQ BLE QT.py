@@ -737,27 +737,27 @@ class MainWindow(QMainWindow):
         try:
             if len(ble_data_byte_array.data()) == 4:
                 flow_voltage = struct.unpack('f', ble_data_byte_array.data())
-                temp_voltage = 1
-                data_one = (flow_voltage, temp_voltage)
+                data_one = (flow_voltage, 1)
                 self.add_data_point(data_one, None)
             if len(ble_data_byte_array.data()) == 8:
                 flow_voltage = struct.unpack('ff', ble_data_byte_array.data())
-                temp_voltage = 1
-                data_one = (flow_voltage[0], temp_voltage)
-                self.add_data_point(data_one, None)
-                data_one = (flow_voltage[1], temp_voltage)
+                data_one = (flow_voltage[1], 1)
                 self.add_data_point(data_one, None)
             if len(ble_data_byte_array.data()) == 12:
                 flow_voltage = struct.unpack('fff', ble_data_byte_array.data())
-                # print(type(flow_voltage))
-                temp_voltage = 1
-                data_one = (flow_voltage[0], temp_voltage)
+                print(" Counter: %:.2f".format(flow_voltage[0]))
+                data_one = (flow_voltage[2], 1)
                 self.add_data_point(data_one, None)
-                data_one = (flow_voltage[1], temp_voltage)
-                # time.sleep(20)
+                data_one = (flow_voltage[2], 1)
                 self.add_data_point(data_one, None)
-                data_one = (flow_voltage[2], temp_voltage)
-                # time.sleep(20)
+            if len(ble_data_byte_array.data()) == 16:
+                flow_voltage = struct.unpack('ffff', ble_data_byte_array.data())
+                print(" Counter: %:.2f".format(flow_voltage[0]))
+                data_one = (flow_voltage[1], 1)
+                self.add_data_point(data_one, None)
+                data_one = (flow_voltage[2], 1)
+                self.add_data_point(data_one, None)
+                data_one = (flow_voltage[3], 1)
                 self.add_data_point(data_one, None)
         except Exception as err:
             logging.exception("ble_callback error: %s", str(err))
@@ -1457,7 +1457,7 @@ class MainWindow(QMainWindow):
             logging.debug("No file selected.")
 
     def update_combo(self):
-        logging.debug("update_combo called.")
+        # logging.debug("update_combo called.")
         # print('Thread = {}          Function = updateCombo()'.format(threading.currentThread().getName()))
         combo_ble = False
         combo_daq = False
