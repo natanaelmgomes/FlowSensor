@@ -837,13 +837,13 @@ class MainWindow(QMainWindow):
             except Exception as err:
                 # logging.exception("math error: %s", str(err))
                 temperature = 0.0
-            datapoint = {'timestamp': timestamp,
-                         'time': self.timeCounter,
-                         'flow_voltage': flow_voltage_one,
-                         'temp_voltage': temp_voltage_one,
-                         'temperature': temperature}
+            datapoint = {'timestamp': [timestamp],
+                         'time': [self.timeCounter],
+                         'flow_voltage': [flow_voltage_one],
+                         'temp_voltage': [temp_voltage_one],
+                         'temperature': [temperature]}
             # self.data_channel_one = self.data_channel_one.append(datapoint, ignore_index=True)
-            datapoint = pd.DataFrame.from_dict(datapoint, orient='index')
+            datapoint = pd.DataFrame(data=datapoint)
             self.data_channel_one = pd.concat([self.data_channel_one, datapoint], ignore_index=True)
             ''' FFT'''
             if len(self.x_channel_one) > constants.FFT_N1:
@@ -872,12 +872,14 @@ class MainWindow(QMainWindow):
             except Exception as err:
                 # logging.exception("math error: %s", str(err))
                 temperature = 0.0
-            datapoint = {'timestamp': timestamp,
-                         'time': self.timeCounter,
-                         'flow_voltage': flow_voltage_two,
-                         'temp_voltage': temp_voltage_two,
-                         'temperature': temperature}
-            self.data_channel_two = self.data_channel_two.append(datapoint, ignore_index=True)
+            datapoint = {'timestamp': [timestamp],
+                         'time': [self.timeCounter],
+                         'flow_voltage': [flow_voltage_two],
+                         'temp_voltage': [temp_voltage_two],
+                         'temperature': [temperature]}
+            datapoint = pd.DataFrame(data=datapoint)
+            self.data_channel_two = pd.concat([self.data_channel_two, datapoint], ignore_index=True)
+            # self.data_channel_two = self.data_channel_two.append(datapoint, ignore_index=True)
             ''' FFT'''
             if len(self.x_channel_two) > constants.FFT_N1:
                 y = self.y_channel_two[-constants.FFT_N1:]
