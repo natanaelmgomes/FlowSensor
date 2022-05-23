@@ -58,7 +58,7 @@ from scipy.optimize import curve_fit
 import constants
 import filters
 
-import serial
+# import serial
 
 # import threading
 # import statistics
@@ -146,57 +146,6 @@ class SignalCommunicate(QObject):
     # got_new_sensor_data = pyqtSignal(float, float)
     # position_updated = pyqtSignal(float)
     request_graph_update = pyqtSignal()
-
-
-# #thread to capture the process data
-# class DataCaptureThread(QThread):
-#     new_data = pyqtSignal(float)
-#
-#     def collectProcessData(self):
-#         # print("Time: ", (timeit.default_timer() - self.last_time) * 1000)
-#         # self.last_time = timeit.default_timer()
-#         try:
-#             if self.serial_port.in_waiting > 0:
-#
-#                 # Read data out of the buffer until a carraige return / new line is found
-#                 serial_string = self.serial_port.readline()
-#
-#                 text = serial_string.decode("Ascii")
-#                 result = re.findall(r"[-+]?(?:\d*\.\d+|\d+)", text)
-#                 # print(text.split())
-#                 # print(result)
-#                 if "Received" in text:
-#                     value = float(result[2])
-#                     # print("Received Serial:", value)
-#                     self.new_data.emit(value)
-#         except serial.serialutil.SerialException as e:
-#             self.serial_port = serial.Serial(
-#                 port=self.port, baudrate=115200, bytesize=8, timeout=2, stopbits=serial.STOPBITS_ONE
-#             )
-#
-#     def __init__(self, *args, **kwargs):
-#         QThread.__init__(self, *args, **kwargs)
-#         self.dataCollectionTimer = QTimer()
-#         self.dataCollectionTimer.moveToThread(self)
-#         self.dataCollectionTimer.timeout.connect(self.collectProcessData)
-#         self.last_time = timeit.default_timer()
-#         self.port = None
-#         self.serial_port = None
-#
-#     def change_port(self, port):
-#         try:
-#             self.port = port
-#             self.serial_port = serial.Serial(
-#                 port=self.port, baudrate=115200, bytesize=8, timeout=2, stopbits=serial.STOPBITS_ONE
-#             )
-#             return 0
-#         except serial.serialutil.SerialException as e:
-#             return 1
-#
-#     def run(self):
-#         self.dataCollectionTimer.start(20)
-#         loop = QEventLoop()
-#         loop.exec_()
 
 
 class MainWindow(QMainWindow):
@@ -1117,9 +1066,9 @@ class MainWindow(QMainWindow):
                 np.mean(self.tempos), np.std(self.tempos), max(self.tempos)))
             self.tempos = []
         return 0
-
-    def usb_callback(self, data):
-        print(data)
+    #
+    # def usb_callback(self, data):
+    #     print(data)
 
     @pyqtSlot()
     def receive(self):
@@ -1624,33 +1573,12 @@ class MainWindow(QMainWindow):
             self.timerCombo.setInterval(60000)
 
         if not combo_usb:
-            # import sys
-            import glob
-            if sys.platform.startswith('win'):
-                ports = ['COM%s' % (i + 1) for i in range(32)]
-            elif sys.platform.startswith('linux') or sys.platform.startswith('cygwin'):
-                # this excludes your current terminal "/dev/tty"
-                ports = glob.glob('/dev/tty[A-Za-z]*')
-            elif sys.platform.startswith('darwin'):
-                ports = glob.glob('/dev/tty.*')
-            else:
-                raise EnvironmentError('Unsupported platform')
-            # print(ports)
-            result = []
-            for port in ports:
-                try:
-                    s = serial.Serial(port)
-                    s.close()
-                    result.append(port)
-                except (OSError, serial.SerialException):
-                    pass
-            print(result)
+            combo_usb = True
+            info = QtSerialPort.QSerialPortInfo()
+            result = [port.portName() for port in info.availablePorts()]
             for port in result:
                 self.device_combo_sc.addItem('Serial: {0}'.format(port), ["USB", port])
                 self.device_combo_user.addItem('Serial: {0}'.format(port), ["USB", port])
-
-
-            # return result
 
         if combo_ble or combo_daq or combo_usb:
             self.startButton.setEnabled(True)
@@ -1946,6 +1874,7 @@ logging.basicConfig(
 
 pg.setConfigOptions(antialias=True)
 
+QApplication.setAttribute(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 app = QApplication(sys.argv)
 app.setStyle("Fusion")
 clipboard = app.clipboard()
