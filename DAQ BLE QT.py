@@ -1082,10 +1082,11 @@ class MainWindow(QMainWindow):
                 value = float(result[2])
                 # print("Received Serial:", value)
                 # self.new_data.emit(value)
+                data_one = (value, 0.0)
+                self.add_data_point(data_one, None)
             else:
                 print(text)
-            data_one = (value, 0.0)
-            self.add_data_point(data_one, None)
+
 
     def check_flow(self):
         if self.flow_detected:
