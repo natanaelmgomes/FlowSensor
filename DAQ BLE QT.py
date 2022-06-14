@@ -1222,6 +1222,7 @@ class MainWindow(QMainWindow):
             self.device_combo_user.setEnabled(True)
             self.raw_data_box.setEnabled(True)
         elif combo_ble:
+            self.channel_two_box.setChecked(False)
             self.device_combo_sc.setEnabled(False)
             self.device_combo_user.setEnabled(False)
             self.setup_new_data()
