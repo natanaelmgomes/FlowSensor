@@ -1212,7 +1212,10 @@ class MainWindow(QMainWindow):
         if self.activeBLE:
             self.activeBLE = False
             array = QByteArray(b'\x00\x00')  # turn off NOTIFY for characteristic
-            self.BLE_service.writeDescriptor(self.descriptor, array)  # turn off NOTIFY
+            try:
+                self.BLE_service.writeDescriptor(self.descriptor, array)  # turn off NOTIFY
+            except AttributeError as ex:
+                pass
             time.sleep(0.4)
             self.save_to_file()
             self.startButton.setText("Start")
