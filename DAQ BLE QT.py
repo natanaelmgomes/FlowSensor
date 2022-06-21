@@ -1106,6 +1106,9 @@ class MainWindow(QMainWindow):
                 np.mean(self.tempos), np.std(self.tempos), max(self.tempos)))
             self.tempos = []
         return 0
+    #
+    # def usb_callback(self, data):
+    #     print(data)
 
     '''
     Callback function to receive data from Serial port.
