@@ -236,6 +236,7 @@ class MainWindow(QMainWindow):
     blink = False
     blink_on = False
     steady_flow = False
+    pump_selected = None
 
     # endregion init
 
@@ -371,8 +372,8 @@ class MainWindow(QMainWindow):
 
         self.p2.setGeometry(self.p1.vb.sceneBoundingRect())
         vb = self.p1.getViewBox()
-        # print(vb.sceneBoundingRect())
 
+    # Import the Bluetooth functions from external file.
     from BLEfunctions import scan_for_devices
     from BLEfunctions import discovered_device
     from BLEfunctions import deviceScanError
@@ -386,6 +387,9 @@ class MainWindow(QMainWindow):
     from BLEfunctions import addLEservice
     from BLEfunctions import serviceScanDone
 
+    '''
+    Create the main layout.
+    '''
     def set_main_layout(self, layout):
         scientific = self.scientific_widget()
         user = self.user_widget()
@@ -393,6 +397,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(scientific)
         layout.addWidget(user)
 
+    '''
+    Scientific GUI
+    '''
     def scientific_widget(self):
         scientific_widget = QWidget(self)
         scientific_layout = QHBoxLayout(scientific_widget)
@@ -556,6 +563,9 @@ class MainWindow(QMainWindow):
         scientific_layout.addWidget(right_widget)
         return scientific_widget
 
+    '''
+    User GUI
+    '''
     def user_widget(self):
         user_widget = QWidget(self)
         user_layout = QHBoxLayout(user_widget)
@@ -675,6 +685,9 @@ class MainWindow(QMainWindow):
 
         return user_widget
 
+    '''
+    Callback function to fine tune the graphs after adding new data.
+    '''
     def _update_graph_views(self):
         try:
             # view has resized; update auxiliary views to match
@@ -689,6 +702,9 @@ class MainWindow(QMainWindow):
         except Exception as err:
             logging.exception("_update_graph_views error: %s", str(err))
 
+    '''
+    Function to create the GUI.
+    '''
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
 
@@ -727,12 +743,21 @@ class MainWindow(QMainWindow):
 
         help_menu = menu_bar.addMenu("&Help")
 
+    '''
+    Action function to change the view to scientific view.
+    '''
     def scientific_action_call(self):
         self.main_layout.setCurrentIndex(0)
 
+    '''
+    Action function to change the view to user view.
+    '''
     def user_action_call(self):
         self.main_layout.setCurrentIndex(1)
 
+    '''
+    Callback function to receive data from BLE.
+    '''
     def ble_callback(self, characteristic, ble_data_byte_array):
         # print(struct.unpack('f', ble_data_byte_array.data()))
 
@@ -778,6 +803,9 @@ class MainWindow(QMainWindow):
             logging.exception("ble_callback error: %s", str(err))
         # self.add_data_point(data_one, data_two)
 
+    '''
+    Callback function to sync the BLE box between the two layouts.
+    '''
     def ble_box_changed(self):
         self.useBLE = self.bleBox.isChecked()
         self.bleBox2.setChecked(self.useBLE)
@@ -794,10 +822,16 @@ class MainWindow(QMainWindow):
                 self.timerCombo.setInterval(500)
                 self.timerCombo.start()
 
+    '''
+    Callback function to sync the BLE box between the two layouts.
+    '''
     def ble_box2_changed(self):
         self.useBLE = self.bleBox2.isChecked()
         self.bleBox.setChecked(self.useBLE)
 
+    '''
+    Function to adjust the graph after every new data point is added.
+    '''
     def update_graph(self):
         try:
             # print('Thread = {}          Function = update_graph()'.format(threading.currentThread().getName()))
@@ -819,6 +853,9 @@ class MainWindow(QMainWindow):
         except Exception as err:
             logging.exception("update_graph error: %s", str(err))
 
+    '''
+    Function to add a new data point to the graph and analise it.
+    '''
     def add_data_point(self, data_one=None, data_two=None):
 
         if not self.ScaleBox.isChecked():
@@ -1017,6 +1054,9 @@ class MainWindow(QMainWindow):
 
         self.signalComm.request_graph_update.emit()
 
+    '''
+    Callback function to receive data from the DAQ.
+    '''
     def daq_callback(self, task_handle, every_n_samples_event_type, number_of_samples, callback_data):
         # print('Thread = {}          Function = daq_callback()'.format(threading.currentThread().getName()))
         # DEBUG
@@ -1066,10 +1106,10 @@ class MainWindow(QMainWindow):
                 np.mean(self.tempos), np.std(self.tempos), max(self.tempos)))
             self.tempos = []
         return 0
-    #
-    # def usb_callback(self, data):
-    #     print(data)
 
+    '''
+    Callback function to receive data from Serial port.
+    '''
     @pyqtSlot()
     def receive(self):
         while self.serial.canReadLine():
@@ -1087,7 +1127,10 @@ class MainWindow(QMainWindow):
             else:
                 print(text)
 
-
+    '''
+    Callback timer function to control the displays.
+    It is called evey 500ms.
+    '''
     def check_flow(self):
         if self.flow_detected:
             now = datetime.now()
@@ -1142,6 +1185,9 @@ class MainWindow(QMainWindow):
                     self.flow_label2.display('')
                     self.blink_on = True
 
+    '''
+    Function to start and stop the system.
+    '''
     def start_button_click(self) -> None:
         logging.debug("start_button_click called.")
         self.deviceText = self.device_combo_sc.currentText()
@@ -1319,6 +1365,9 @@ class MainWindow(QMainWindow):
         self.startButton.setEnabled(True)
         self.startButton2.setEnabled(True)
 
+    '''
+    Function to clear the data in memory and prepare for new data.
+    '''
     def setup_new_data(self):
         logging.debug("setup_new_data called.")
         if self.activeBLE or self.activeDAQ:
@@ -1356,6 +1405,9 @@ class MainWindow(QMainWindow):
         self.signalComm.request_graph_update.emit()
         logging.debug("setup_new_data returning.")
 
+    '''
+    Function to save the data to a file.
+    '''
     def save_to_file(self):
         logging.debug("save_to_file called.")
         if self.activeBLE or self.activeBLE:
@@ -1486,6 +1538,9 @@ class MainWindow(QMainWindow):
 
         self.settings.setValue("working_dir", working_dir)
 
+    '''
+    Function to import data from a CSV file.
+    '''
     def open_data(self):
         logging.debug("open_data called.")
         if self.activeBLE or self.activeDAQ:
@@ -1531,6 +1586,9 @@ class MainWindow(QMainWindow):
         else:
             logging.debug("No file selected.")
 
+    '''
+    Callback function from timer to update the device combo box.
+    '''
     def update_combo(self):
         # logging.debug("update_combo called.")
         # print('Thread = {}          Function = updateCombo()'.format(threading.currentThread().getName()))
@@ -1592,6 +1650,9 @@ class MainWindow(QMainWindow):
         if combo_ble and combo_daq:
             self.timerCombo.stop()
 
+    '''
+    Function to generate the report.
+    '''
     def report_button_click(self):
         # TODO add verifications for possible empty arrays
         logging.debug("Report button pressed.")
@@ -1708,12 +1769,18 @@ class MainWindow(QMainWindow):
         msg.setWindowTitle("Report")
         msg.exec_()
 
+    '''
+    Function to control the slider availability
+    '''
     def scale_box_changed(self):
         # print(self.ScaleBox.isChecked())
         self.sliderX.setEnabled(not self.ScaleBox.isChecked())
         # if not self.sliderX.isEnabled():
         #     self.sliderX.set
 
+    '''
+    Function to start of stop the autosave timer.
+    '''
     def autosave_box_changed(self):
         logging.debug("Autosave box changed.")
         if self.autosave_box.isChecked():
@@ -1722,18 +1789,37 @@ class MainWindow(QMainWindow):
         else:
             self.autosave_timer.stop()
 
+    '''
+    Callback function for syncing the device selected on both layouts.
+    '''
     def device_combo_sc_changed(self):
         self.device_combo_user.setCurrentIndex(self.device_combo_sc.currentIndex())
 
+    '''
+    Callback function for syncing the device selected on both layouts.
+    '''
     def device_combo_user_changed(self):
         self.device_combo_sc.setCurrentIndex(self.device_combo_user.currentIndex())
 
+    '''
+    Callback function for syncing the pump selected on both layouts.
+    '''
     def pump_combo_sc_changed(self):
         self.pump_combo_user.setCurrentIndex(self.pump_combo_sc.currentIndex())
+        self.pump_selected = self.pump_combo_sc.currentData()
 
+    '''
+    Callback function for syncing the pump selected on both layouts.
+    '''
     def pump_combo_user_changed(self):
         self.pump_combo_sc.setCurrentIndex(self.pump_combo_user.currentIndex())
+        self.pump_selected = self.pump_combo_sc.currentData()
 
+    '''
+    Callback function for automatically saving the data every hour.
+    It stops the data acquisition, save the data and starts the data acquisition again.
+    It uses the last folder selected by the user.
+    '''
     def autosave_callback(self):
         if self.activeDAQ:
             self.task.stop()
@@ -1812,9 +1898,15 @@ class MainWindow(QMainWindow):
 
             self.task.start()
 
+    '''
+    Action to close the application.
+    '''
     def close_application(self):
         self.close()
 
+    '''
+    Function to save settings.
+    '''
     def save_settings(self):
         self.settings.setValue("size", self.size())
         self.settings.setValue("pos", self.pos())
@@ -1823,6 +1915,10 @@ class MainWindow(QMainWindow):
         self.settings.setValue("sensor_id_1", self.sensor_id_box_one.text())
         self.settings.setValue("sensor_id_2", self.sensor_id_box_two.text())
 
+    '''
+    Action to resize the window to full HD.
+    Useful for recording the screen.
+    '''
     def _resize_window(self):
         self.resize(QSize(1920, 1080))
         qr = self.frameGeometry()
@@ -1836,6 +1932,9 @@ class MainWindow(QMainWindow):
         # print(center)
         self.move(center)
 
+    '''
+    Function to check if it is safe to close the application.
+    '''
     def closeEvent(self, event):
 
         if not self.activeDAQ and not self.activeBLE:
