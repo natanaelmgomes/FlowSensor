@@ -236,7 +236,7 @@ class MainWindow(QMainWindow):
     blink = False
     blink_on = False
     steady_flow = False
-    pump_selected = None
+    BBPS_base_voltage = None
 
     # endregion init
 
@@ -972,85 +972,114 @@ class MainWindow(QMainWindow):
         else:
             self.fftWidget.setYRange(0, r)
 
-        ''' Flow estimation through frequency components '''
+        # Alaris GW Cardinal Health pump
+        if self.pump_combo_sc.currentData() == "ALGW":
+            ''' Flow estimation through frequency components '''
+            def freq_to_flow(frequency):
+                return frequency / 0.001251233545
+            # 0.00123995
+            # 0.001251233545
 
-        def freq_to_flow(frequency):
-            return frequency / 0.001251233545
-
-        # 0.00123995
-        # 0.001251233545
-
-        if len(self.x_channel_one) > constants.FFT_N1:
-            yf = np.copy(self.yf_channel_one)
-            value = False
-            peaks, properties = signal.find_peaks(yf, constants.MIN_PEAKS)
-            if len(properties['peak_heights']) > 0:
-                index_max = np.argmax(properties['peak_heights'])
-                if peaks[index_max] < 30:
-                    properties['peak_heights'] = np.delete(properties['peak_heights'], index_max)
-                    peaks = np.delete(peaks, index_max)
-                    if len(properties['peak_heights']) > 0:
-                        index_max = np.argmax(properties['peak_heights'])
-                        # print("Removed the first peak, peak: ", peaks[index_max], " Frequency: ",
-                        #       peaks[index_max] / constants.FFT_N2, " Flow: ",
-                        #   freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE))
-                        value = freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE)
+            if len(self.x_channel_one) > constants.FFT_N1:
+                yf = np.copy(self.yf_channel_one)
+                value = False
+                peaks, properties = signal.find_peaks(yf, constants.MIN_PEAKS)
+                if len(properties['peak_heights']) > 0:
+                    index_max = np.argmax(properties['peak_heights'])
+                    if peaks[index_max] < 30:
+                        properties['peak_heights'] = np.delete(properties['peak_heights'], index_max)
+                        peaks = np.delete(peaks, index_max)
+                        if len(properties['peak_heights']) > 0:
+                            index_max = np.argmax(properties['peak_heights'])
+                            # print("Removed the first peak, peak: ", peaks[index_max], " Frequency: ",
+                            #       peaks[index_max] / constants.FFT_N2, " Flow: ",
+                            #   freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE))
+                            value = freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE)
+                        else:
+                            # print("Removed the only peak.")
+                            value = np.NAN
                     else:
-                        # print("Removed the only peak.")
-                        value = np.NAN
+                        # print("Using the first peak, peak: ", peaks[index_max], " Frequency: ",
+                        #       peaks[index_max] / constants.FFT_N2, " Flow: ",
+                        #       freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE))
+                        value = freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE)
                 else:
-                    # print("Using the first peak, peak: ", peaks[index_max], " Frequency: ",
-                    #       peaks[index_max] / constants.FFT_N2, " Flow: ",
-                    #       freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE))
-                    value = freq_to_flow((peaks[index_max] / constants.FFT_N2) / constants.SAMPLING_RATE)
-            else:
-                # print("There are no peaks.")
-                value = np.NAN
+                    # print("There are no peaks.")
+                    value = np.NAN
 
-            # if not value:
-            #     for j in range(int(0.00067138 * constants.FFT_N2) + 1):
-            #         yf[j] = 0.0
-            #     index_max = np.argmax(yf)
-            #     value = freq_to_flow(index_max * constants.SAMPLING_RATE / constants.FFT_N2)
+                self.values_deque.append(value)
 
-            self.values_deque.append(value)
+                if len(self.values_deque) > constants.MAX_DEQUE_SIZE:
+                    self.values_deque.popleft()
 
-            if len(self.values_deque) > constants.MAX_DEQUE_SIZE:
-                self.values_deque.popleft()
+            ''' Flow detection '''
 
-        ''' Flow detection '''
+            def func(fx, fa, fb):
+                return fa + fb * fx
 
-        def func(fx, fa, fb):
-            return fa + fb * fx
+            if len(self.x_channel_one) > constants.ALGW_FLOW_DETECTION_BLOCK_LEN and self.channel_one_box.isChecked():
+                try:
+                    now = datetime.now()
 
-        if len(self.x_channel_one) > constants.FLOW_DETECTION_BLOCK_LEN and self.channel_one_box.isChecked():
-            try:
-                now = datetime.now()
+                    chunk = self.y_channel_one[-constants.ALGW_FLOW_DETECTION_BLOCK_LEN:]
+                    x = np.linspace(0, len(chunk), len(chunk))
+                    p_opt, p_cov = curve_fit(func, x, chunk)
+                    b = p_opt[1]
 
-                chunk = self.y_channel_one[-constants.FLOW_DETECTION_BLOCK_LEN:]
-                x = np.linspace(0, len(chunk), len(chunk))
-                p_opt, p_cov = curve_fit(func, x, chunk)
-                b = p_opt[1]
+                    if b < constants.ALGW_FLOW_START_NEG_THRESHOLD:
+                        if not self.flow_detected:
+                            print("Flow detected, b: ", b)
+                            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow detected.")
+                        self.flow_detected = True
+                    if b > constants.ALGW_FLOW_STOP_POS_THRESHOLD:
+                        if self.flow_detected:
+                            print("Flow stopped, b: ", b)
+                            self.last_flow = time.time()
+                            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow stopped.")
+                        self.flow_detected = False
+                except OptimizeWarning as err:
+                    logging.exception("OptimizeWarning error: %s", str(err))
+                except Exception as err:
+                    logging.exception("Generic error in curve estimation: %s", str(err))
 
-                if b < constants.FLOW_START_NEG_THRESHOLD:
-                    if not self.flow_detected:
-                        print("Flow detected, b: ", b)
-                        self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow detected.")
-                    self.flow_detected = True
-                if b > constants.FLOW_STOP_POS_THRESHOLD:
-                    # print(b)
-                    if self.flow_detected:
-                        print("Flow stopped, b: ", b)
-                        self.last_flow = time.time()
-                        self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow stopped.")
-                    self.flow_detected = False
-            except OptimizeWarning as err:
-                logging.exception("OptimizeWarning error: %s", str(err))
-            except Exception as err:
-                logging.exception("Generic error in curve estimation: %s", str(err))
+        # B Braun Perfusor Space pump
+        elif self.pump_combo_sc.currentData() == "BBPS":
 
-            # DEBUG
-            # self.flow_detected = True
+
+
+
+            '''Flow Detection'''
+            def func(fx, fa, fb):
+                return fa + fb * fx
+
+            if len(self.x_channel_one) > constants.BBPS_FLOW_DETECTION_BLOCK_LEN and self.channel_one_box.isChecked():
+                try:
+                    now = datetime.now()
+                    chunk = self.y_channel_one[-constants.BBPS_FLOW_DETECTION_BLOCK_LEN:]
+                    x = np.linspace(0, len(chunk), len(chunk))
+                    p_opt, p_cov = curve_fit(func, x, chunk)
+                    b = p_opt[1]
+                    if b < constants.BBPS_FLOW_START_NEG_THRESHOLD:
+                        if not self.flow_detected:
+                            # first detection of the flow, get the base voltage
+                            self.BBPS_base_voltage = np.average(self.y_channel_one[
+                                                                constants.BBPS_START:constants.BBPS_STOP])
+                            print(self.BBPS_base_voltage)
+                            print("Flow detected, b: ", b)
+                            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow detected.")
+                        self.flow_detected = True
+                    if b > constants.BBPS_FLOW_STOP_POS_THRESHOLD:
+                        if self.flow_detected:
+                            # flow stoped
+                            self.BBPS_base_voltage = None
+                            print("Flow stopped, b: ", b)
+                            self.last_flow = time.time()
+                            self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow stopped.")
+                        self.flow_detected = False
+                except OptimizeWarning as err:
+                    logging.exception("OptimizeWarning error: %s", str(err))
+                except Exception as err:
+                    logging.exception("Generic error in curve estimation: %s", str(err))
 
         self.signalComm.request_graph_update.emit()
 
@@ -1135,58 +1164,101 @@ class MainWindow(QMainWindow):
     It is called evey 500ms.
     '''
     def check_flow(self):
-        if self.flow_detected:
-            now = datetime.now()
-            if len(self.values_deque) > 20:
-                std_value = np.std(self.values_deque)
-                mean_value = np.mean(self.values_deque)
-                std_over_mean = abs(std_value / mean_value)
-                logging.debug("[FLOW ESTIMATION] std: {:.2f}, mean: {:.2f}, ratio: {:.2f}".format(
-                    std_value, mean_value, std_over_mean))
-            else:
-                std_over_mean = 10
-
-            if std_over_mean > 0.5 or np.isnan(np.sum(self.values_deque)):
-                if self.blink_on:
-                    self.flow_label.display('---')
-                    self.flow_label2.display('---')
-                    self.blink_on = False
+        # Alaris GW Cardinal Health pump
+        if self.pump_combo_sc.currentData() == "ALGW":
+            if self.flow_detected:
+                now = datetime.now()
+                if len(self.values_deque) > 20:
+                    std_value = np.std(self.values_deque)
+                    mean_value = np.mean(self.values_deque)
+                    std_over_mean = abs(std_value / mean_value)
+                    logging.debug("[FLOW ESTIMATION] std: {:.2f}, mean: {:.2f}, ratio: {:.2f}".format(
+                        std_value, mean_value, std_over_mean))
                 else:
-                    self.flow_label.display('')
-                    self.flow_label2.display('')
-                    self.blink_on = True
-                if not self.blink:
-                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Calculating...")
-                self.blink = True
-                self.steady_flow = False
+                    std_over_mean = 10
+
+                if std_over_mean > 0.5 or np.isnan(np.sum(self.values_deque)):
+                    if self.blink_on:
+                        self.flow_label.display('---')
+                        self.flow_label2.display('---')
+                        self.blink_on = False
+                    else:
+                        self.flow_label.display('')
+                        self.flow_label2.display('')
+                        self.blink_on = True
+                    if not self.blink:
+                        self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Calculating...")
+                    self.blink = True
+                    self.steady_flow = False
+                else:
+                    self.blink = False
+                    if not self.steady_flow:
+                        self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Steady flow detected.")
+                        self.steady_flow = True
+                    values = list(self.values_deque)
+                    values.sort()
+                    try:
+                        value = np.mean(values)
+                        value = 0 if value < 0 else value
+                        value = round(value)
+                        self.flow_label.display(value)
+                        self.flow_label2.display(value)
+                    except Exception as err:
+                        logging.exception("flow calculation error: : %s", str(err))
             else:
-                self.blink = False
+                if (time.time() - self.last_flow) > 10:
+                    self.flow_label.display('000')
+                    self.flow_label2.display('000')
+                else:
+                    if self.blink_on:
+                        self.flow_label.display('---')
+                        self.flow_label2.display('---')
+                        self.blink_on = False
+                    else:
+                        self.flow_label.display('')
+                        self.flow_label2.display('')
+                        self.blink_on = True
+
+        # B Braun Perfusor Space pump
+        elif self.pump_combo_sc.currentData() == "BBPS":
+            ''' Flow estimation through voltage delta'''
+            if self.BBPS_base_voltage is not None:
+                voltage_delta = np.abs(np.average(self.y_channel_one[-5:]) - self.BBPS_base_voltage)
+                flow = np.exp((voltage_delta+constants.BBPS_A)/constants.BBPS_B)
+                print("voltage delta: ", voltage_delta)
+                print("flow: ", flow)
+
+                logging.debug("voltage delta: " + str(voltage_delta))
+                logging.debug("flow: " + str(flow))
+
+                now = datetime.now()
+                if voltage_delta > 2:
+                    flow = 0
+                    self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Flow out of linear region.")
+
                 if not self.steady_flow:
                     self.text_box.append(now.strftime("%Y-%m-%d %H:%M:%S") + ": Steady flow detected.")
                     self.steady_flow = True
-                values = list(self.values_deque)
-                values.sort()
                 try:
-                    value = np.mean(values)
-                    value = 0 if value < 0 else value
-                    value = round(value)
+                    value = round(flow)
                     self.flow_label.display(value)
                     self.flow_label2.display(value)
                 except Exception as err:
                     logging.exception("flow calculation error: : %s", str(err))
-        else:
-            if (time.time() - self.last_flow) > 10:
-                self.flow_label.display('000')
-                self.flow_label2.display('000')
             else:
-                if self.blink_on:
-                    self.flow_label.display('---')
-                    self.flow_label2.display('---')
-                    self.blink_on = False
+                if (time.time() - self.last_flow) > 10:
+                    self.flow_label.display('000')
+                    self.flow_label2.display('000')
                 else:
-                    self.flow_label.display('')
-                    self.flow_label2.display('')
-                    self.blink_on = True
+                    if self.blink_on:
+                        self.flow_label.display('---')
+                        self.flow_label2.display('---')
+                        self.blink_on = False
+                    else:
+                        self.flow_label.display('')
+                        self.flow_label2.display('')
+                        self.blink_on = True
+
 
     '''
     Function to start and stop the system.
@@ -1677,17 +1749,17 @@ class MainWindow(QMainWindow):
         flow_detected_channel_1 = False
         starting_index_channel_1 = 0
         stopping_index_channel_1 = 0
-        for i in range(len(self.y_channel_one) - constants.FLOW_DETECTION_BLOCK_LEN):
-            cut = self.y_channel_one[i - constants.FLOW_DETECTION_BLOCK_LEN:i]
-            if len(cut) < constants.FLOW_DETECTION_BLOCK_LEN:
+        for i in range(len(self.y_channel_one) - constants.ALGW_FLOW_DETECTION_BLOCK_LEN):
+            cut = self.y_channel_one[i - constants.ALGW_FLOW_DETECTION_BLOCK_LEN:i]
+            if len(cut) < constants.ALGW_FLOW_DETECTION_BLOCK_LEN:
                 continue
             x = np.linspace(0, len(cut), len(cut))
             try:
                 popt, pcov = curve_fit(func, x, cut)
-                if popt[1] < constants.FLOW_START_NEG_THRESHOLD and not flow_detected_channel_1:
+                if popt[1] < constants.ALGW_FLOW_START_NEG_THRESHOLD and not flow_detected_channel_1:
                     flow_detected_channel_1 = True
                     starting_index_channel_1 = i
-                if popt[1] > constants.FLOW_STOP_POS_THRESHOLD:
+                if popt[1] > constants.ALGW_FLOW_STOP_POS_THRESHOLD:
                     if flow_detected_channel_1: stopping_index_channel_1 = i
                     break
             except OptimizeWarning as err:
@@ -1809,14 +1881,12 @@ class MainWindow(QMainWindow):
     '''
     def pump_combo_sc_changed(self):
         self.pump_combo_user.setCurrentIndex(self.pump_combo_sc.currentIndex())
-        self.pump_selected = self.pump_combo_sc.currentData()
 
     '''
     Callback function for syncing the pump selected on both layouts.
     '''
     def pump_combo_user_changed(self):
         self.pump_combo_sc.setCurrentIndex(self.pump_combo_user.currentIndex())
-        self.pump_selected = self.pump_combo_sc.currentData()
 
     '''
     Callback function for automatically saving the data every hour.
