@@ -796,10 +796,13 @@ class MainWindow(QMainWindow):
                 while len(self.x_channel_one) > self.maxX:
                     self.x_channel_one = self.x_channel_one[1:]
                     self.y_channel_one = self.y_channel_one[1:]
-            beta = 3760
+            # beta = 3760
+            beta = 3976
             try:
-                resistance = 250 / ((5.04 / temp_voltage_one) - 1)
-                temperature = beta / log(resistance / (12000 * exp(- beta / 298.15))) - 273.15
+                # resistance = 250 / ((5.04 / temp_voltage_one) - 1)
+                # temperature = beta / log(resistance / (12000 * exp(- beta / 298.15))) - 273.15
+                resistance = 2983 / ((5.04 / temp_voltage_one) - 1)
+                temperature = beta / log(resistance / (2000 * exp(- beta / 298.15))) - 273.15
                 # print(temperature)
             except Exception as err:
                 # logging.exception("math error: %s", str(err))
@@ -830,10 +833,10 @@ class MainWindow(QMainWindow):
                 while len(self.x_channel_two) > self.maxX:
                     self.x_channel_two = self.x_channel_two[1:]
                     self.y_channel_two = self.y_channel_two[1:]
-            beta = 3950
+            beta = 3760
             try:
                 resistance = 9980 / ((5.04 / temp_voltage_two) - 1)
-                temperature = beta / log(resistance / (10000 * exp(- beta / 298.15))) - 273.15
+                temperature = beta / log(resistance / (12000 * exp(- beta / 298.15))) - 273.15
             except Exception as err:
                 # logging.exception("math error: %s", str(err))
                 temperature = 0.0
@@ -1142,26 +1145,29 @@ class MainWindow(QMainWindow):
             self.task = nidaqmx.Task()
             self.activeDAQ = True
             self.daq_device = self.system.devices[self.device_combo_sc.currentIndex()].name
+            # print(list(self.system.devices))
             self.autosave_timer.setInterval(60 * 60 * 1000)
 
+
             if self.channel_one_box.isChecked():
-                channel = self.daq_device + "/ai2"
+                channel = self.daq_device + "/ai1"
                 # self.device = "Dev1/ai2"
                 # print('Channel: ', channel)
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
-                                                              terminal_config=TerminalConfiguration.RSE)
+                                                              terminal_config=TerminalConfiguration.DIFFERENTIAL)
 
                 channel = self.daq_device + "/ai0"
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.RSE)
 
             if self.channel_two_box.isChecked():
-                channel = self.daq_device + "/ai4"
+                channel = self.daq_device + "/ai3"
                 # self.device = "Dev1/ai2"
+                print(self.daq_device)
                 # print('Channel: ', channel)
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
-                                                              terminal_config=TerminalConfiguration.RSE)
-                channel = self.daq_device + "/ai5"
+                                                              terminal_config=TerminalConfiguration.DIFFERENTIAL)
+                channel = self.daq_device + "/ai2"
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.RSE)
                 # DEBUG
