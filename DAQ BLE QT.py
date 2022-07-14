@@ -903,6 +903,8 @@ class MainWindow(QMainWindow):
                 while len(self.x_channel_one) > self.maxX:
                     self.x_channel_one = self.x_channel_one[1:]
                     self.y_channel_one = self.y_channel_one[1:]
+                    self.x_temperature_one = self.x_temperature_one[1:]
+                    self.y_temperature_one = self.y_temperature_one[1:]
             beta = 3976
             try:
                 resistance = 2983 / ((5.039 / temp_voltage_one) - 1)
@@ -911,8 +913,6 @@ class MainWindow(QMainWindow):
             except Exception as err:
                 # logging.exception("math error: %s", str(err))
                 temperature = 0.0
-                    self.x_temperature_one = self.x_temperature_one[1:]
-                    self.y_temperature_one = self.y_temperature_one[1:]
             datapoint = {'timestamp': [timestamp],
                          'time': [self.timeCounter],
                          'flow_voltage': [flow_voltage_one],
@@ -932,15 +932,6 @@ class MainWindow(QMainWindow):
 
         if data_two is not None:
             flow_voltage_two, temp_voltage_two = data_two
-            if len(self.x_channel_two) == 0:
-                self.x_channel_two.append(0)
-            else:
-                self.x_channel_two.append(self.x_channel_two[-1] + 0.1)
-            self.y_channel_two.append(flow_voltage_two)
-            if not self.ScaleBox.isChecked():
-                while len(self.x_channel_two) > self.maxX:
-                    self.x_channel_two = self.x_channel_two[1:]
-                    self.y_channel_two = self.y_channel_two[1:]
             beta = 3976
             try:
                 resistance = 2688 / ((5.039 / temp_voltage_two) - 1)
