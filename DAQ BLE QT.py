@@ -47,6 +47,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QLineEdit,
     QShortcut,
+    QGroupBox,
 )
 from nidaqmx import system as daq_system
 from nidaqmx.constants import AcquisitionType, TerminalConfiguration  # , TaskMode
@@ -59,7 +60,6 @@ import constants
 import filters
 
 # import serial
-
 # import threading
 # import statistics
 
@@ -181,6 +181,7 @@ class MainWindow(QMainWindow):
     flow_rate_box_two = None
     back_pressure_box_one = None
     back_pressure_box_two = None
+    temperature_fft_box = None
     ''' Graph '''
     data_line_channel_one = None
     data_line_channel_two = None
@@ -327,6 +328,15 @@ class MainWindow(QMainWindow):
             [random() * 32 + 16 for _ in range(len(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1]))],
             pen=pg.mkPen(color=(20, 255, 20, 255))
         )
+        self.yf_channel_two = fft(self.y_channel_two, constants.FFT_N2)
+        self.yf_channel_two = 2.0 / constants.FFT_N1 * np.abs(self.yf_channel_two[0:constants.FFT_N2 // 2])
+        self.xf_channel_two = fftfreq(constants.FFT_N2, constants.SAMPLING_RATE)[:constants.FFT_N2 // 2]
+
+        '''' Temperature graph '''
+        self.x_temperature_one = list(range(256))
+        self.x_temperature_two = list(range(256))
+        self.y_temperature_one = [random() * 256 for _ in range(256)]
+        self.y_temperature_two = [random() * 256 for _ in range(256)]
 
         ''' Timer '''
         self.timerCombo = QTimer(self)
@@ -545,6 +555,8 @@ class MainWindow(QMainWindow):
         self.autosave_box.stateChanged.connect(self.autosave_box_changed)
         right_layout.addWidget(self.autosave_box)
 
+        self.temperature_fft_box = QCheckBox("Temperature")
+        self.temperature_fft_box.stateChanged.connect(self.temperature_fft_box_changed)
         self.sliderX = QSlider(Qt.Horizontal)
         self.sliderX.setTickInterval(10)
         self.sliderX.setSingleStep(1)
@@ -553,10 +565,14 @@ class MainWindow(QMainWindow):
         self.ScaleBox = QCheckBox("Full scale")
         self.ScaleBox.stateChanged.connect(self.scale_box_changed)
         self.ScaleBox.setChecked(True)
+        groupbox = QGroupBox("Graphical settings")
+        vbox = QVBoxLayout()
+        groupbox.setLayout(vbox)
+        vbox.addWidget(self.temperature_fft_box)
+        vbox.addWidget(self.ScaleBox)
+        vbox.addWidget(self.sliderX)
         right_layout.addStretch(4)
-        right_layout.addWidget(self.ScaleBox)
-        right_layout.addWidget(self.sliderX)
-
+        right_layout.addWidget(groupbox)
         right_layout.addSpacing(10)
         right_layout.setAlignment(self.device_combo_sc, Qt.AlignTop)
 
@@ -835,17 +851,16 @@ class MainWindow(QMainWindow):
     def update_graph(self):
         try:
             # print('Thread = {}          Function = update_graph()'.format(threading.currentThread().getName()))
-            # if self.channel_one_box.isChecked():
-            self.data_line_channel_one.setData(self.x_channel_one, self.y_channel_one)  # Update the data.
-            # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
-            self.fft_line_channel_one.setData(self.xf_channel_one[0:constants.FFT_N2 // 7 + 1],
-                                              self.yf_channel_one[0:constants.FFT_N2 // 7 + 1])
-
-            # if self.channel_two_box.isChecked():
-            self.data_line_channel_two.setData(self.x_channel_two, self.y_channel_two)  # Update the data.
-            # self.fft_line.setData(self.xf, 2.0 / constants.FFT_N1 * np.abs(self.yf[0:constants.FFT_N1 // 2]))
-            self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N2 // 7 + 1],
-                                              self.yf_channel_two[0:constants.FFT_N2 // 7 + 1])
+            self.data_line_channel_one.setData(self.x_channel_one, self.y_channel_one)
+            self.data_line_channel_two.setData(self.x_channel_two, self.y_channel_two)
+            if self.temperature_fft_box.isChecked():
+                self.fft_line_channel_one.setData(self.x_temperature_one, self.y_temperature_one)
+                self.fft_line_channel_two.setData(self.x_temperature_two, self.y_temperature_two)
+            else:
+                self.fft_line_channel_one.setData(self.xf_channel_one[0:constants.FFT_N2 // 8],
+                                                  self.yf_channel_one[0:constants.FFT_N2 // 8])
+                self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N2 // 8],
+                                                  self.yf_channel_two[0:constants.FFT_N2 // 8])
 
             # TODO: improve scale
             # if len(self.y_channel_one) > 2:
@@ -868,15 +883,6 @@ class MainWindow(QMainWindow):
 
         if data_one is not None:
             flow_voltage_one, temp_voltage_one = data_one
-            if len(self.x_channel_one) == 0:
-                self.x_channel_one.append(0)
-            else:
-                self.x_channel_one.append(self.x_channel_one[-1] + 0.1)
-            self.y_channel_one.append(flow_voltage_one)
-            if not self.ScaleBox.isChecked():
-                while len(self.x_channel_one) > self.maxX:
-                    self.x_channel_one = self.x_channel_one[1:]
-                    self.y_channel_one = self.y_channel_one[1:]
             beta = 3760
             try:
                 resistance = 250 / ((5.04 / temp_voltage_one) - 1)
@@ -885,6 +891,20 @@ class MainWindow(QMainWindow):
             except Exception as err:
                 # logging.exception("math error: %s", str(err))
                 temperature = 0.0
+            if len(self.x_channel_one) == 0:
+                self.x_channel_one.append(0)
+                self.x_temperature_one.append(0)
+            else:
+                self.x_channel_one.append(self.x_channel_one[-1] + 0.1)
+                self.x_temperature_one.append(self.x_temperature_one[-1] + 0.1)
+            self.y_channel_one.append(flow_voltage_one)
+            self.y_temperature_one.append(temperature)
+            if not self.ScaleBox.isChecked():
+                while len(self.x_channel_one) > self.maxX:
+                    self.x_channel_one = self.x_channel_one[1:]
+                    self.y_channel_one = self.y_channel_one[1:]
+                    self.x_temperature_one = self.x_temperature_one[1:]
+                    self.y_temperature_one = self.y_temperature_one[1:]
             datapoint = {'timestamp': [timestamp],
                          'time': [self.timeCounter],
                          'flow_voltage': [flow_voltage_one],
@@ -904,15 +924,6 @@ class MainWindow(QMainWindow):
 
         if data_two is not None:
             flow_voltage_two, temp_voltage_two = data_two
-            if len(self.x_channel_two) == 0:
-                self.x_channel_two.append(0)
-            else:
-                self.x_channel_two.append(self.x_channel_two[-1] + 0.1)
-            self.y_channel_two.append(flow_voltage_two)
-            if not self.ScaleBox.isChecked():
-                while len(self.x_channel_two) > self.maxX:
-                    self.x_channel_two = self.x_channel_two[1:]
-                    self.y_channel_two = self.y_channel_two[1:]
             beta = 3950
             try:
                 resistance = 9980 / ((5.04 / temp_voltage_two) - 1)
@@ -925,6 +936,20 @@ class MainWindow(QMainWindow):
                          'flow_voltage': [flow_voltage_two],
                          'temp_voltage': [temp_voltage_two],
                          'temperature': [temperature]}
+            if len(self.x_channel_two) == 0:
+                self.x_channel_two.append(0)
+                self.x_temperature_two.append(0)
+            else:
+                self.x_channel_two.append(self.x_channel_two[-1] + 0.1)
+                self.x_temperature_two.append(self.x_temperature_two[-1] + 0.1)
+            self.y_channel_two.append(flow_voltage_two)
+            self.y_temperature_two.append(temperature)
+            if not self.ScaleBox.isChecked():
+                while len(self.x_channel_two) > self.maxX:
+                    self.x_channel_two = self.x_channel_two[1:]
+                    self.y_channel_two = self.y_channel_two[1:]
+                    self.x_temperature_two = self.x_temperature_two[1:]
+                    self.y_temperature_two = self.y_temperature_two[1:]
             datapoint = pd.DataFrame(data=datapoint)
             self.data_channel_two = pd.concat([self.data_channel_two, datapoint], ignore_index=True)
             # self.data_channel_two = self.data_channel_two.append(datapoint, ignore_index=True)
@@ -966,11 +991,12 @@ class MainWindow(QMainWindow):
         self.timeCounter += Decimal('0.1')
 
         ''' Adjust FFT scale '''
-        r = max(r1, r2)
-        if r < 0.02:
-            self.fftWidget.setYRange(0, 0.02)
-        else:
-            self.fftWidget.setYRange(0, r)
+        if not self.temperature_fft_box.isChecked():
+            r = max(r1, r2)
+            if r < 0.02:
+                self.fftWidget.setYRange(0, 0.02)
+            else:
+                self.fftWidget.setYRange(0, r)
 
         # Alaris GW Cardinal Health pump
         if self.pump_combo_sc.currentData() == "ALGW":
@@ -1044,10 +1070,6 @@ class MainWindow(QMainWindow):
 
         # B Braun Perfusor Space pump
         elif self.pump_combo_sc.currentData() == "BBPS":
-
-
-
-
             '''Flow Detection'''
             def func(fx, fa, fb):
                 return fa + fb * fx
@@ -1462,6 +1484,10 @@ class MainWindow(QMainWindow):
         self.y_channel_two = []
         self.xf_channel_two = []
         self.yf_channel_two = []
+        self.x_temperature_one = []
+        self.y_temperature_one = []
+        self.x_temperature_two = []
+        self.y_temperature_two = []
 
         ''' Raw data '''
         self.raw_data_channel_one = []
@@ -1863,6 +1889,20 @@ class MainWindow(QMainWindow):
             self.autosave_timer.start()
         else:
             self.autosave_timer.stop()
+
+    '''
+    Function to change the behavior of the second graph.
+    '''
+    def temperature_fft_box_changed(self):
+        logging.debug("Temperature FFT box changed.")
+        if self.temperature_fft_box.isChecked():
+            self.fft_line_channel_one.setData(self.x_temperature_one, self.y_temperature_one)
+            self.fft_line_channel_two.setData(self.x_temperature_two, self.y_temperature_two)
+        else:
+            self.fft_line_channel_one.setData(self.xf_channel_one[0:constants.FFT_N2 // 8],
+                                              self.yf_channel_one[0:constants.FFT_N2 // 8])
+            self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N2 // 8],
+                                              self.yf_channel_two[0:constants.FFT_N2 // 8])
 
     '''
     Callback function for syncing the device selected on both layouts.
