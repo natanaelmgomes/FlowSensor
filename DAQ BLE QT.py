@@ -883,10 +883,10 @@ class MainWindow(QMainWindow):
 
         if data_one is not None:
             flow_voltage_one, temp_voltage_one = data_one
-            beta = 3760
+            beta = 3976
             try:
-                resistance = 250 / ((5.04 / temp_voltage_one) - 1)
-                temperature = beta / log(resistance / (12000 * exp(- beta / 298.15))) - 273.15
+                resistance = 2983 / ((5.039 / temp_voltage_one) - 1)
+                temperature = beta / log(resistance / (2000 * exp(- beta / 298.15))) - 273.15
                 # print(temperature)
             except Exception as err:
                 # logging.exception("math error: %s", str(err))
@@ -905,14 +905,6 @@ class MainWindow(QMainWindow):
                     self.y_channel_one = self.y_channel_one[1:]
                     self.x_temperature_one = self.x_temperature_one[1:]
                     self.y_temperature_one = self.y_temperature_one[1:]
-            beta = 3976
-            try:
-                resistance = 2983 / ((5.039 / temp_voltage_one) - 1)
-                temperature = beta / log(resistance / (2000 * exp(- beta / 298.15))) - 273.15
-                # print(temperature)
-            except Exception as err:
-                # logging.exception("math error: %s", str(err))
-                temperature = 0.0
             datapoint = {'timestamp': [timestamp],
                          'time': [self.timeCounter],
                          'flow_voltage': [flow_voltage_one],
@@ -1378,10 +1370,10 @@ class MainWindow(QMainWindow):
                                                               terminal_config=TerminalConfiguration.RSE)
 
             if self.channel_two_box.isChecked():
-                channel = self.daq_device + "/ai2"
+                channel = self.daq_device + "/ai3"
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.DIFFERENTIAL)
-                channel = self.daq_device + "/ai3"
+                channel = self.daq_device + "/ai2"
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.RSE)
                 # DEBUG
@@ -1907,7 +1899,8 @@ class MainWindow(QMainWindow):
                                               self.yf_channel_one[0:constants.FFT_N2 // 8])
             self.fft_line_channel_two.setData(self.xf_channel_two[0:constants.FFT_N2 // 8],
                                               self.yf_channel_two[0:constants.FFT_N2 // 8])
-
+        self.fftWidget.enableAutoRange(axis='y')
+        self.fftWidget.setAutoVisible(y=True)
     '''
     Callback function for syncing the device selected on both layouts.
     '''
