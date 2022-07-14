@@ -1378,10 +1378,10 @@ class MainWindow(QMainWindow):
                                                               terminal_config=TerminalConfiguration.RSE)
 
             if self.channel_two_box.isChecked():
-                channel = self.daq_device + "/ai3"
+                channel = self.daq_device + "/ai2"
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.DIFFERENTIAL)
-                channel = self.daq_device + "/ai2"
+                channel = self.daq_device + "/ai3"
                 _ = self.task.ai_channels.add_ai_voltage_chan(channel,
                                                               terminal_config=TerminalConfiguration.RSE)
                 # DEBUG
